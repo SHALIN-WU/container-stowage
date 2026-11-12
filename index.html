@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>貨物明細櫃型試算</title>
+    <link rel="stylesheet" href="css/app.css?v=2.1" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./js/vendor/three/three.module.js"
+        }
+      }
+    </script>
+  </head>
+  <body data-step="1">
+    <a class="skip" href="#stage">跳到主要內容</a>
+    <header class="mast">
+      <div class="mast-inner">
+        <div class="hero-row">
+          <div class="hero-copy">
+            <div class="brand">
+              <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
+                <rect x="5" y="12" width="38" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
+                <path d="M5 20h38M17 20v16M31 20v16" fill="none" stroke="currentColor" stroke-width="2" />
+                <rect x="8" y="23" width="5" height="5" fill="#e4b15a" />
+              </svg>
+              <div>
+                <p class="eyebrow">配載作業 · 櫃型與配載圖</p>
+                <h1>貨物明細櫃型試算</h1>
+              </div>
+            </div>
+            <p class="lede">
+              上傳裝箱單，核對尺寸、重量、數量後，算出要用幾個、什麼櫃，再排出配載圖。圖上每一件都有編號、尺寸和重量。
+            </p>
+          </div>
+          <img
+            class="hero-image"
+            src="images/container-loading-hero.svg?v=2.1"
+            alt="打開的貨櫃中整齊排放不同尺寸的貨物"
+            width="720"
+            height="420"
+          />
+        </div>
+        <ol class="steps" aria-label="作業步驟">
+          <li data-step="1"><span class="step-body"><span class="step-index">1</span>上傳裝箱單</span></li>
+          <li data-step="2"><span class="step-body"><span class="step-index">2</span>核對明細</span></li>
+          <li data-step="3"><span class="step-body"><span class="step-index">3</span>櫃型方案</span></li>
+          <li data-step="4"><span class="step-body"><span class="step-index">4</span>配載圖</span></li>
+        </ol>
+      </div>
+    </header>
+    <main id="stage" class="stage"></main>
+    <script src="vendor/pdf.min.js"></script>
+    <script src="js/vendor/xlsx/xlsx.full.min.js"></script>
+    <script src="js/vendor/mammoth/mammoth.browser.min.js"></script>
+    <script src="js/vendor/tesseract/tesseract.min.js"></script>
+    <script>
+      if (location.protocol === "file:") {
+        var stage = document.getElementById("stage");
+        stage.innerHTML =
+          '<section class="panel panel-upload">' +
+          '<h2>請改開本機網頁</h2>' +
+          '<p class="quiet">直接點這個檔案時，瀏覽器不會載入下方的操作畫面。</p>' +
+          '<p class="actions"><a class="file-open" href="http://localhost:8765/">打開操作畫面</a></p>' +
+          "</section>";
+        location.replace("http://localhost:8765/");
+      }
+    </script>
+    <script type="module" src="js/app.js?v=2.1"></script>
+  </body>
+</html>

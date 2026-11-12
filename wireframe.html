@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>貨物明細櫃型試算 · 畫面稿</title>
+    <style>
+      :root {
+        --bg: #e9e2d4;
+        --ink: #1c2430;
+        --muted: #5c6a76;
+        --card: #fffdf8;
+        --line: #e3d6c3;
+        --harbor: #143e39;
+        --teal: #0f5c54;
+        --sand: #f4ead8;
+        --gold: #e4b15a;
+        --warn-bg: #fff6e4;
+        --warn-ink: #7a4e0c;
+        --bad: #8d3b32;
+        --bad-bg: #fdeceb;
+        --ok-bg: #e7f4f1;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Segoe UI", "Microsoft JhengHei", sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+      button { font: inherit; color: inherit; cursor: pointer; }
+      button:disabled { cursor: not-allowed; opacity: 0.45; }
+      .viewer {
+        background: #f7f1e6;
+        border-bottom: 1px solid var(--line);
+      }
+      .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+      .viewer-inner { padding: 10px 0; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+      .viewer p { margin: 0; color: var(--muted); font-size: 13px; }
+      .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+      .pill {
+        border: 1px solid #cbbfa8;
+        background: transparent;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 13px;
+      }
+      .pill.is-on { background: var(--harbor); color: #f3e2c2; border-color: var(--harbor); }
+      .mast { background: var(--harbor); color: #f7f1e6; }
+      .mast-inner { padding: 18px 0 14px; }
+      .eyebrow { margin: 0; color: var(--gold); font-size: 12px; font-weight: 700; letter-spacing: 0.12em; }
+      h1 { margin: 2px 0 0; font-size: 28px; line-height: 1.2; }
+      .steps { display: flex; flex-wrap: wrap; gap: 8px 0; margin: 14px 0 0; padding: 0; list-style: none; }
+      .steps li { display: flex; align-items: center; color: rgba(247, 241, 230, 0.7); font-size: 14px; }
+      .steps li:not(:last-child)::after {
+        content: "";
+        width: 28px;
+        height: 1px;
+        margin: 0 10px;
+        background: rgba(255, 255, 255, 0.28);
+      }
+      .steps button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        padding: 0;
+      }
+      .step-index {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-radius: 50%;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .steps li.is-current { color: var(--harbor); font-weight: 700; }
+      .steps li.is-current button {
+        background: #f3e2c2;
+        border-radius: 999px;
+        padding: 4px 12px 4px 4px;
+      }
+      .steps li.is-current .step-index { background: var(--harbor); color: #f3e2c2; border-color: var(--harbor); }
+      .stage { padding: 22px 0 56px; }
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 24px;
+      }
+      .panel-narrow { width: min(760px, 100%); margin: 0 auto; }
+      h2 { margin: 0; font-size: 26px; }
+      .quiet { margin: 8px 0 0; color: var(--muted); }
+      .banner { margin: 14px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--warn-bg); color: var(--warn-ink); }
+      .banner.bad { background: var(--bad-bg); color: var(--bad); }
+      .banner.ok { background: var(--ok-bg); color: var(--teal); }
+      .banner.info { background: #eef3f8; color: #1d4e89; }
+      .drop {
+        margin-top: 16px;
+        border: 1.5px dashed #b7a88e;
+        border-radius: 16px;
+        background: var(--sand);
+        padding: 36px 16px;
+        text-align: center;
+      }
+      .drop strong { display: block; margin-bottom: 12px; }
+      .hints { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
+      .actions, .bottom, .row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .bottom { justify-content: space-between; margin-top: 16px; }
+      .primary, .secondary, .tiny {
+        border-radius: 999px;
+        padding: 8px 16px;
+      }
+      .primary { background: var(--teal); color: #f7f1e6; border: 0; font-weight: 700; }
+      .secondary, .tiny { background: transparent; border: 1px solid #cbbfa8; }
+      .tiny { padding: 4px 10px; font-size: 13px; }
+      .filechip {
+        display: inline-block;
+        margin-top: 10px;
+        padding: 2px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .scroll-hint { margin: 12px 0 6px; color: var(--muted); font-size: 13px; }
+      .table-wrap { overflow-x: auto; }
+      table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 14px; }
+      th, td { padding: 8px; border-bottom: 1px solid var(--line); text-align: right; }
+      th:first-child, td:first-child, th:last-child, td:last-child { text-align: left; }
+      th { color: var(--muted); font-size: 13px; font-weight: 700; }
+      .field {
+        display: inline-flex;
+        min-width: 52px;
+        justify-content: flex-end;
+        border: 1px solid #e3d6c3;
+        background: white;
+        padding: 2px 6px;
+      }
+      td:first-child .field { min-width: 88px; justify-content: flex-start; }
+      .field.is-missing { background: #fff3c4; color: var(--warn-ink); border-color: #e4b15a; }
+      .flag { display: block; margin-bottom: 4px; color: var(--warn-ink); font-size: 12px; font-weight: 700; }
+      .computed { color: var(--muted); }
+      .totals, .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+      .summary { grid-template-columns: repeat(4, 1fr); }
+      .stat { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; }
+      .stat span { display: block; color: var(--muted); font-size: 13px; }
+      .stat strong { font-size: 20px; }
+      .stack-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+      .stack-option {
+        display: flex;
+        gap: 8px;
+        text-align: left;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: white;
+        padding: 12px;
+      }
+      .stack-option.is-on { border-color: var(--teal); background: var(--ok-bg); }
+      .dot {
+        width: 14px;
+        height: 14px;
+        margin-top: 4px;
+        flex: none;
+        border: 1px solid var(--harbor);
+        border-radius: 50%;
+      }
+      .stack-option.is-on .dot { background: var(--teal); border-color: var(--teal); }
+      .stack-option strong, .stack-option span { display: block; }
+      .stack-option span { color: var(--muted); font-size: 14px; font-weight: 400; }
+      .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+      .plan {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 14px;
+        background: white;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .plan.is-selected { border-color: var(--teal); background: #f3faf8; }
+      .tags, .codes { display: flex; flex-wrap: wrap; gap: 6px; }
+      .tag, .code {
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .tag { background: var(--sand); }
+      .tag.best, .tag.picked { background: var(--harbor); color: #f3e2c2; }
+      .code { border: 1px solid var(--line); font-weight: 600; }
+      .plan h3 { margin: 0; font-size: 18px; }
+      .remain { display: grid; gap: 4px; }
+      .remain div { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+      .remain span { color: var(--muted); }
+      .meter { height: 6px; background: #efe6d6; border-radius: 99px; overflow: hidden; }
+      .meter i { display: block; height: 100%; background: #b7a88e; }
+      .meter.hot i { background: var(--teal); }
+      .use-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+      .basis { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+      .basis strong { color: var(--ink); }
+      .legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 14px 0; padding: 0; list-style: none; }
+      .legend li { display: flex; align-items: center; gap: 6px; }
+      .legend i { width: 12px; height: 12px; border-radius: 2px; }
+      .sheet { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+      .sheet h3 { margin: 0; font-size: 18px; }
+      .view-scroll { overflow-x: auto; margin-top: 8px; }
+      .deck { width: 640px; height: auto; display: block; }
+      .piece-row { cursor: pointer; }
+      .piece-row.is-hot { background: #fff3c4; }
+      .note { margin-top: 28px; color: var(--muted); font-size: 13px; }
+      @media (max-width: 860px) {
+        .totals, .summary, .stack-choice, .plans { grid-template-columns: 1fr; }
+        h1 { font-size: 22px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="viewer">
+      <div class="wrap viewer-inner">
+        <p>畫面稿。點頁首步驟，或點畫面裡的按鈕。狀態只用來查看例外，不是正式畫面的一部分。</p>
+        <div class="pills" id="variants"></div>
+      </div>
+    </div>
+    <header class="mast">
+      <div class="wrap mast-inner">
+        <p class="eyebrow">配載作業 · 櫃型與配載圖</p>
+        <h1>貨物明細櫃型試算</h1>
+        <ol class="steps" id="steps"></ol>
+      </div>
+    </header>
+    <main class="wrap stage" id="stage"></main>
+    <script>
+      const SCREENS = [
+        ["upload", "1", "上傳 PDF"],
+        ["review", "2", "核對明細"],
+        ["plans", "3", "櫃型方案"],
+        ["diagram", "4", "配載圖"],
+      ];
+      const VARIANTS = {
+        upload: [["default", "待上傳"], ["error", "讀取失敗"]],
+        review: [["default", "可計算"], ["incomplete", "有未完成列"], ["blocked", "無法計算"], ["recalc", "將清除舊方案"]],
+        plans: [["default", "三組方案"], ["selected", "已選定"], ["empty", "沒有可行組合"]],
+        diagram: [["default", "全部排入"], ["unpacked", "有未排入"]],
+      };
+      const STACK_PLANS = [
+        { role: "建議", codes: ["20GP × 1"], title: "1 個 20呎櫃（20GP）", remain: [["剩餘空間", "10.33 CBM"], ["剩餘載重", "26,870 kg"]], meters: [["空間使用比例", "68.9%", 69, true], ["載重使用比例", "4.7%", 5, false]], limit: "這組先滿的是空間" },
+        { role: "備選", codes: ["40GP × 1"], title: "1 個 40呎櫃（40GP）", remain: [["剩餘空間", "44.83 CBM"], ["剩餘載重", "25,370 kg"]], meters: [["空間使用比例", "33.8%", 34, true], ["載重使用比例", "5.0%", 5, false]], limit: "這組先滿的是空間" },
+        { role: "備選", codes: ["40HQ × 1"], title: "1 個 40呎高櫃（40HQ）", remain: [["剩餘空間", "53.43 CBM"], ["剩餘載重", "25,170 kg"]], meters: [["空間使用比例", "30.0%", 30, true], ["載重使用比例", "5.0%", 5, false]], limit: "這組先滿的是空間" },
+      ];
+      const FLOOR_PLANS = [
+        { role: "建議", codes: ["20GP × 1", "40GP × 1"], title: "1 個 20呎櫃（20GP）＋ 1 個 40呎櫃（40GP）", remain: [["剩餘空間", "78.03 CBM"], ["剩餘載重", "53,570 kg"], ["剩餘櫃底", "12.39 m²"]], meters: [["空間使用比例", "22.7%", 23, false], ["載重使用比例", "2.4%", 3, false], ["櫃底使用比例", "70.6%", 71, true]], limit: "這組先滿的是櫃底" },
+        { role: "備選", codes: ["20GP × 1", "40HQ × 1"], title: "1 個 20呎櫃（20GP）＋ 1 個 40呎高櫃（40HQ）", remain: [["剩餘空間", "86.63 CBM"], ["剩餘載重", "53,370 kg"], ["剩餘櫃底", "12.39 m²"]], meters: [["空間使用比例", "20.9%", 21, false], ["載重使用比例", "2.4%", 3, false], ["櫃底使用比例", "70.6%", 71, true]], limit: "這組先滿的是櫃底" },
+        { role: "備選", codes: ["40GP × 2"], title: "2 個 40呎櫃（40GP）", remain: [["剩餘空間", "112.53 CBM"], ["剩餘載重", "52,070 kg"], ["剩餘櫃底", "26.82 m²"]], meters: [["空間使用比例", "16.9%", 17, false], ["載重使用比例", "2.5%", 3, false], ["櫃底使用比例", "52.6%", 53, true]], limit: "這組先滿的是櫃底" },
+      ];
+      const CARGO = [
+        ["A", "貨物 A", "10 件", "#0f5c54"],
+        ["B", "貨物 B", "40 件", "#9a5416"],
+        ["C", "貨物 C", "4 件", "#1d4e89"],
+        ["D", "貨物 D", "16 件", "#8d3b32"],
+      ];
+      const state = {
+        screen: "upload",
+        variant: "default",
+        stackable: true,
+        appliedStack: true,
+        picked: false,
+        pickedIndex: 0,
+        hot: "1",
+      };
+
+      const stepsEl = document.getElementById("steps");
+      const variantsEl = document.getElementById("variants");
+      const stage = document.getElementById("stage");
+
+      function plansFor(stackable) { return stackable ? STACK_PLANS : FLOOR_PLANS; }
+      function stackWord(stackable) { return stackable ? "可堆疊" : "不可堆疊"; }
+      function patch(next) { Object.assign(state, next); render(); }
+      function jump(screen) {
+        let variant = "default";
+        if (screen === "plans" && state.picked) variant = "selected";
+        if (screen === "review" && state.picked) variant = "recalc";
+        patch({ screen, variant });
+      }
+      function loadFile() {
+        patch({ screen: "review", variant: "default", stackable: true, appliedStack: true, picked: false, pickedIndex: 0 });
+      }
+      function calculate() {
+        if (state.variant === "blocked") return;
+        patch({ appliedStack: state.stackable, picked: false, pickedIndex: 0, screen: "plans", variant: "default" });
+      }
+      function pickPlan(index) {
+        patch({ picked: true, pickedIndex: index, screen: "diagram", variant: "default", hot: "1" });
+      }
+
+      function btn(className, action, label, extra) {
+        const disabled = extra && extra.disabled ? " disabled" : "";
+        const index = extra && extra.index != null ? ` data-index="${extra.index}"` : "";
+        const value = extra && extra.value != null ? ` data-value="${extra.value}"` : "";
+        return `<button class="${className}" data-action="${action}"${index}${value}${disabled}>${label}</button>`;
+      }
+
+      function banner(kind, text) {
+        return `<p class="banner ${kind}">${text}</p>`;
+      }
+
+      function stat(label, value) {
+        return `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`;
+      }
+
+      function field(value, missing) {
+        if (missing || value === "") return `<span class="field is-missing">未填</span>`;
+        return `<span class="field">${value}</span>`;
+      }
+
+      function renderSteps() {
+        stepsEl.innerHTML = SCREENS.map(([id, index, name]) => {
+          const current = state.screen === id ? " is-current" : "";
+          return `<li class="${current}"><button data-action="jump" data-value="${id}"><span class="step-index">${index}</span>${name}</button></li>`;
+        }).join("");
+      }
+
+      function renderVariants() {
+        variantsEl.innerHTML = VARIANTS[state.screen].map(([id, label]) => {
+          const on = state.variant === id ? " is-on" : "";
+          return `<button class="pill${on}" data-action="variant" data-value="${id}">${label}</button>`;
+        }).join("");
+      }
+
+      function renderUpload() {
+        const error = state.variant === "error"
+          ? banner("bad", "PDF 讀取失敗，可能是掃描圖片。請改傳文字型裝箱單。不是 PDF、超過 20 MB 時也留在這一頁。")
+          : "";
+        return `<section class="panel panel-narrow">
+          <h2>上傳客戶的裝箱單</h2>
+          <p class="quiet">系統會讀出尺寸、重量、數量。掃描圖片沒有可選取文字時，讀不到表格。</p>
+          ${error}
+          <div class="drop">
+            <strong>把文字型 PDF 裝箱單拖到這裡</strong>
+            <div class="actions" style="justify-content:center">
+              ${btn("primary", "load", "選擇 PDF")}
+              ${btn("secondary", "load", "用範例裝箱單")}
+            </div>
+            <p class="hints">只讀文字型 PDF · 檔案上限 20 MB · 內容只在這台電腦讀取</p>
+          </div>
+        </section>`;
+      }
+
+      function reviewRows() {
+        const full = [
+          ["貨物 A", "120", "80", "100", "10", "25", "9.60", "250"],
+          ["貨物 B", "60", "40", "40", "40", "8", "3.84", "320"],
+          ["貨物 C", "200", "100", "110", "4", "180", "8.80", "720"],
+          ["貨物 D", "45", "35", "25", "16", "2.5", "0.63", "40"],
+        ];
+        if (state.variant === "blocked") return [["", "", "", "", "", "", "—", "—"]];
+        if (state.variant === "incomplete") return [...full.slice(0, 3), ["貨物 D", "", "", "", "16", "2.5", "—", "—"]];
+        return full;
+      }
+
+      function renderReview() {
+        const mode = state.variant === "blocked" ? "blocked" : state.variant === "incomplete" ? "incomplete" : "full";
+        const totals = mode === "blocked" ? ["0", "0.00", "0"] : mode === "incomplete" ? ["3", "22.24", "1,290"] : ["4", "22.87", "1,330"];
+        const rows = reviewRows().map((row) => {
+          const open = row[6] === "—";
+          const cells = row.map((cell, index) => {
+            if (index === 0) {
+              const flag = open ? `<span class="flag">未完成，不計入</span>` : "";
+              return `<td>${flag}${field(cell, open && cell === "")}</td>`;
+            }
+            if (index >= 6) return `<td class="computed">${cell}</td>`;
+            return `<td>${field(cell, cell === "")}</td>`;
+          }).join("");
+          return `<tr>${cells}<td><span class="tiny">刪除</span></td></tr>`;
+        }).join("");
+        const recalc = state.variant === "recalc" ? banner("", "重新計算後，先前選定的方案會清除。") : "";
+        const incomplete = mode === "blocked"
+          ? banner("", "還有 1 列沒填完。計算櫃型方案不能按。")
+          : mode === "incomplete"
+            ? banner("", "還有 1 列沒填完，這幾列不會計入櫃型方案。")
+            : "";
+        const options = [
+          [true, "可堆疊", "貨可以疊在別的貨上面。"],
+          [false, "不可堆疊", "每一件都放在櫃底，不往上疊。"],
+        ].map(([value, title, detail]) => {
+          const on = state.stackable === value ? " is-on" : "";
+          return `<button class="stack-option${on}" data-action="stack" data-value="${value ? "yes" : "no"}"><i class="dot"></i><span><strong>${title}</strong><span>${detail}</span></span></button>`;
+        }).join("");
+        return `<section class="panel">
+          <h2>核對明細</h2>
+          <p class="quiet">長、寬、高、數量要大於 0，單件毛重要已填且不小於 0，這一列才會計入。沒填的格子是黃底。</p>
+          <p class="filechip">packing-list.pdf</p>
+          ${recalc}${incomplete}
+          <p class="scroll-hint">表格可左右滑動，查看尺寸、重量和材積。</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>品名</th><th>長 cm</th><th>寬 cm</th><th>高 cm</th><th>數量</th><th>單件毛重 kg</th><th>材積 CBM</th><th>列總重 kg</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>
+          <div class="totals">${stat("可計算筆數", totals[0])}${stat("總材積 CBM", totals[1])}${stat("總重量 kg", totals[2])}</div>
+          <h3 style="margin:18px 0 0;font-size:18px">堆疊</h3>
+          <p class="quiet">選一種，作用於整票。改選之後要再按一次「計算櫃型方案」，方案和配載圖才改用新的選擇。</p>
+          <div class="stack-choice">${options}</div>
+          <div class="bottom">
+            ${btn("secondary", "jump", "返回上傳", { value: "upload" })}
+            <div class="row-actions">
+              <span class="secondary" style="display:inline-block">新增一列</span>
+              ${btn("primary", "calc", "計算櫃型方案", { disabled: mode === "blocked" })}
+            </div>
+          </div>
+        </section>`;
+      }
+
+      function renderPlan(plan, index, selected) {
+        const meters = plan.meters.map(([label, pct, width, hot]) => `
+          <div>
+            <div class="use-label"><span>${label}</span><span>${pct}</span></div>
+            <div class="meter${hot ? " hot" : ""}"><i style="width:${width}%"></i></div>
+          </div>`).join("");
+        const remain = plan.remain.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
+        const tags = `<span class="tag${plan.role === "建議" ? " best" : ""}">${plan.role}</span>${selected ? `<span class="tag picked">已選定</span>` : ""}`;
+        const codes = plan.codes.map((code) => `<span class="code">${code}</span>`).join("");
+        return `<article class="plan${selected ? " is-selected" : ""}">
+          <div class="tags">${tags}</div>
+          <div class="codes">${codes}</div>
+          <h3>${plan.title}</h3>
+          <div class="remain">${remain}</div>
+          ${meters}
+          <p style="margin:0;font-size:14px">${plan.limit}</p>
+          ${btn(selected ? "secondary" : "primary", "pick", selected ? "查看配載圖" : "用這個方案產生配載圖", { index })}
+        </article>`;
+      }
+
+      function renderPlans() {
+        const plans = plansFor(state.appliedStack);
+        const selected = state.variant === "selected";
+        const empty = state.variant === "empty";
+        const chosen = plans[state.pickedIndex] || plans[0];
+        const mismatch = state.stackable !== state.appliedStack
+          ? banner("info", `明細頁已改成${stackWord(state.stackable)}。要再按「計算櫃型方案」，這頁和配載圖才會改。`)
+          : "";
+        const body = empty
+          ? banner("", state.appliedStack
+            ? "這票貨超過 12 個櫃子的粗算範圍，或單位有誤，請回核對頁檢查公分與公斤。"
+            : "這票貨以不可堆疊來排，12 個櫃子的櫃底仍不夠，或單位有誤。請回核對頁檢查公分與公斤，或改成可堆疊。")
+          : `<div class="plans">${plans.map((plan, index) => renderPlan(plan, index, selected && index === state.pickedIndex)).join("")}</div>`;
+        const choice = selected && !empty
+          ? banner("ok", `已選定 ${chosen.title}。${stackWord(state.appliedStack)}。配載圖用的就是這組櫃量與櫃型。`)
+          : "";
+        const open = selected && !empty ? btn("primary", "open", "打開配載圖") : "";
+        return `<section class="panel">
+          <h2>櫃型方案</h2>
+          <p class="quiet">${state.appliedStack
+            ? "選定一組後會依櫃的內徑排出配載圖。這次是可堆疊。卡片上的剩餘空間仍是容積相減。"
+            : "選定一組後會依櫃的內徑排出配載圖。這次是不可堆疊，每一件都放在櫃底，所以方案還要有夠大的櫃底。"}</p>
+          ${mismatch}
+          <div class="summary">
+            ${stat("總材積 CBM", "22.87")}${stat("總重量 kg", "1,330")}${stat("件數", "70")}${stat("這次", stackWord(state.appliedStack))}
+          </div>
+          ${body}
+          ${choice}
+          <aside class="basis">
+            <p style="margin:0 0 6px"><strong>估算基準</strong></p>
+            <p style="margin:0">20GP 20呎櫃　內容積 33.2 CBM · 載重 28,200 kg · 內徑 589×235×239 cm</p>
+            <p style="margin:0">40GP 40呎櫃　內容積 67.7 CBM · 載重 26,700 kg · 內徑 1,203×235×239 cm</p>
+            <p style="margin:0">40HQ 40呎高櫃　內容積 76.3 CBM · 載重 26,500 kg · 內徑 1,203×235×269 cm</p>
+            <p style="margin:8px 0 0">這是常見粗算值，還沒扣公路限重。內徑用來產生配載圖。畫面上不能改這些數。</p>
+          </aside>
+          <div class="bottom">
+            ${btn("secondary", "jump", "返回修改明細", { value: "review" })}
+            ${open}
+          </div>
+        </section>`;
+      }
+
+      function deck(boxes) {
+        const shapes = boxes.map((box) => {
+          const color = CARGO.find((item) => item[0] === box.cargo)[3];
+          const hot = state.hot === box.id;
+          const lines = box.lines.map((line, index) => {
+            const y = 16 + box.y + box.h / 2 + (index - (box.lines.length - 1) / 2) * 16;
+            return `<text x="${64 + box.x + box.w / 2}" y="${y}" text-anchor="middle" fill="#f7f1e6" font-size="13" font-weight="${index === 0 ? 700 : 500}">${line}</text>`;
+          }).join("");
+          return `<g data-action="hot" data-value="${box.id}" style="cursor:pointer">
+            <rect x="${64 + box.x}" y="${16 + box.y}" width="${box.w}" height="${box.h}" rx="4" fill="${color}" stroke="${hot ? "#e4b15a" : color}" stroke-width="${hot ? 5 : 0}"></rect>
+            ${lines}
+          </g>`;
+        }).join("");
+        return `<div class="view-scroll"><svg class="deck" viewBox="0 0 640 210" role="img" aria-label="貨櫃俯視示意">
+          <text x="8" y="110" fill="#5c6a76" font-size="13">封閉端</text>
+          <rect x="64" y="16" width="500" height="176" rx="6" fill="#f6f0e4" stroke="#143e39" stroke-width="2"></rect>
+          <text x="574" y="110" fill="#5c6a76" font-size="13">櫃門</text>
+          ${shapes}
+        </svg></div>`;
+      }
+
+      function renderDiagram() {
+        if (!state.picked && state.variant === "default") {
+          return `<section class="panel panel-narrow">
+            <h2>配載圖</h2>
+            <p class="quiet">請先在櫃型方案選定一組。</p>
+            <div class="bottom">${btn("primary", "jump", "返回方案", { value: "plans" })}</div>
+          </section>`;
+        }
+        const plans = plansFor(state.appliedStack);
+        const plan = plans[state.pickedIndex] || plans[0];
+        const known = state.pickedIndex === 0 && state.variant !== "unpacked";
+        const countText = state.variant === "unpacked" ? "圖上 69 件" : known ? "圖上 70 件" : "圖上件數依試排結果";
+        const unpacked = state.variant === "unpacked"
+          ? banner("", "還有 1 件依內徑或載重排不進去：51（200×100×110 cm，180 kg）。可改選別的方案，或回明細檢查單件尺寸。這是例外畫面；參考案例本身 70 件都會排入。")
+          : "";
+        const legend = `<ul class="legend">${CARGO.map((item) => `<li><i style="background:${item[3]}"></i><span>${item[1]} · ${item[2]}</span></li>`).join("")}</ul>`;
+        let sheets = "";
+        if (state.appliedStack) {
+          const heads = [
+            ["第 1 櫃 · 20呎櫃（20GP）", "內徑 589×235×239 cm · 已排 70 件 · 22.87 CBM · 1,330 / 28,200 kg"],
+            ["第 1 櫃 · 40呎櫃（40GP）", "內徑 1,203×235×239 cm · 載重 26,700 kg · 已排件數與材積試排後填入"],
+            ["第 1 櫃 · 40呎高櫃（40HQ）", "內徑 1,203×235×269 cm · 載重 26,500 kg · 已排件數與材積試排後填入"],
+          ];
+          const head = heads[state.pickedIndex] || heads[0];
+          sheets = `<section class="sheet"><h3>${head[0]}</h3><p class="quiet">${head[1]}</p>
+            <p class="scroll-hint">俯視圖比畫面寬時可左右滑動，從封閉端看到櫃門。格子是示意，正式畫面會把每一件都畫進去。</p>
+            <p><strong>第 1 層 · 每一格最底下的貨</strong></p>
+            ${deck([
+              { id: "1", cargo: "A", x: 16, y: 16, w: 170, h: 78, lines: ["1", "120×80×100", "25 kg"] },
+              { id: "51", cargo: "C", x: 200, y: 16, w: 270, h: 110, lines: ["51", "200×100×110", "180 kg"] },
+              { id: "11", cargo: "B", x: 16, y: 108, w: 150, h: 52, lines: ["11", "60×40×40", "8 kg"] },
+            ])}
+            <p><strong>第 2 層 · 疊在下面那層之上</strong></p>
+            ${deck([
+              { id: "2", cargo: "A", x: 16, y: 16, w: 170, h: 78, lines: ["2", "120×80×100", "25 kg"] },
+              { id: "67", cargo: "D", x: 210, y: 28, w: 120, h: 70, lines: ["67", "45×35×25", "2.5 kg"] },
+            ])}
+          </section>`;
+        } else {
+          const first = state.pickedIndex === 2
+            ? ["第 1 櫃 · 40呎櫃（40GP）", "內徑 1,203×235×239 cm · 載重 26,700 kg"]
+            : ["第 1 櫃 · 20呎櫃（20GP）", "內徑 589×235×239 cm · 載重 28,200 kg"];
+          const second = state.pickedIndex === 1
+            ? ["第 2 櫃 · 40呎高櫃（40HQ）", "內徑 1,203×235×269 cm · 載重 26,500 kg"]
+            : ["第 2 櫃 · 40呎櫃（40GP）", "內徑 1,203×235×239 cm · 載重 26,700 kg"];
+          sheets = `<p class="quiet">不可堆疊時每個櫃子只有貼地的一層。建議方案會把 70 件分在兩個櫃子的櫃底。各櫃件數以正式試排為準。</p>
+            <section class="sheet"><h3>${first[0]}</h3><p class="quiet">${first[1]} · 已排件數與材積試排後填入</p>
+              <p><strong>第 1 層 · 貼在櫃底，離地 0</strong></p>
+              ${deck([
+                { id: "1", cargo: "A", x: 16, y: 20, w: 180, h: 90, lines: ["1", "120×80×100", "25 kg"] },
+                { id: "51", cargo: "C", x: 214, y: 16, w: 250, h: 140, lines: ["51", "200×100×110", "180 kg"] },
+              ])}
+            </section>
+            <section class="sheet"><h3>${second[0]}</h3><p class="quiet">${second[1]} · 已排件數與材積試排後填入</p>
+              <p><strong>第 1 層 · 貼在櫃底，離地 0</strong></p>
+              ${deck([
+                { id: "11", cargo: "B", x: 16, y: 40, w: 160, h: 70, lines: ["11", "60×40×40", "8 kg"] },
+                { id: "67", cargo: "D", x: 200, y: 50, w: 130, h: 64, lines: ["67", "45×35×25", "2.5 kg"] },
+              ])}
+            </section>`;
+        }
+        const ground = state.appliedStack ? "100" : "0";
+        const rows = [
+          ["1", "貨物 A", "120×80×100", "25", "第 1 櫃", "0", "16", "16", ""],
+          ["11", "貨物 B", "60×40×40", "8", state.appliedStack ? "第 1 櫃" : "第 2 櫃", ground, "16", "108", ""],
+          ["51", "貨物 C", "200×100×110", "180", state.variant === "unpacked" ? "未排入" : "第 1 櫃", state.variant === "unpacked" ? "—" : "0", state.variant === "unpacked" ? "—" : "200", state.variant === "unpacked" ? "—" : "16", state.variant === "unpacked" ? "排不進這組櫃" : ""],
+          ["67", "貨物 D", "45×35×25", "2.5", state.appliedStack ? "第 1 櫃" : "第 2 櫃", state.appliedStack ? "100" : "0", "210", "28", ""],
+        ];
+        const body = rows.map((row) => {
+          const hot = state.hot === row[0] ? " is-hot" : "";
+          return `<tr class="piece-row${hot}" data-action="hot" data-value="${row[0]}">${row.map((cell) => `<td>${cell || "—"}</td>`).join("")}</tr>`;
+        }).join("");
+        return `<section class="panel">
+          <h2>配載圖</h2>
+          <p class="quiet">格子裡寫編號、尺寸（公分）和單件重量（公斤）。左是封閉端，右是櫃門。這是依常見內徑試排，還沒檢查重心、門能不能關，也還沒扣公路限重。</p>
+          ${banner("ok", `已選定 ${plan.title}。${stackWord(state.appliedStack)}。${countText}，編號沿明細順序。`)}
+          ${unpacked}
+          ${legend}
+          ${sheets}
+          <h3 style="margin:18px 0 0">每件明細</h3>
+          <p class="quiet">點一列或點圖上的貨，會互相標出來。這裡只列 4 件代表；正式頁面每一件一列。</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>編號</th><th>品名</th><th>尺寸 cm</th><th>重量 kg</th><th>位置</th><th>離地 cm</th><th>距封閉端 cm</th><th>距上緣 cm</th><th>備註</th></tr></thead>
+            <tbody>${body}</tbody>
+          </table></div>
+          <div class="bottom">
+            ${btn("secondary", "jump", "返回方案", { value: "plans" })}
+            <div class="row-actions">
+              ${btn("secondary", "jump", "返回修改明細", { value: "review" })}
+              ${btn("primary", "print", "列印配載圖")}
+            </div>
+          </div>
+          <p class="note">關門、重心、門位、公路限重，以及某一列單獨能不能疊，留在畫面之外。方案頁的剩餘空間是容積相減；每一件的位置只出現在配載圖。</p>
+        </section>`;
+      }
+
+      function render() {
+        renderSteps();
+        renderVariants();
+        const view = { upload: renderUpload, review: renderReview, plans: renderPlans, diagram: renderDiagram }[state.screen];
+        stage.innerHTML = view();
+      }
+
+      document.body.addEventListener("click", (event) => {
+        const target = event.target.closest("[data-action]");
+        if (!target || target.disabled) return;
+        const action = target.dataset.action;
+        if (action === "jump") jump(target.dataset.value);
+        if (action === "variant") patch({ variant: target.dataset.value });
+        if (action === "load") loadFile();
+        if (action === "calc") calculate();
+        if (action === "stack") patch({ stackable: target.dataset.value === "yes" });
+        if (action === "pick") pickPlan(Number(target.dataset.index));
+        if (action === "open") patch({ picked: true, screen: "diagram", variant: "default" });
+        if (action === "hot") patch({ hot: target.dataset.value });
+        if (action === "print") window.print();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
