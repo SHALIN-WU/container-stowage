@@ -9,9 +9,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 const stage = document.querySelector("#stage");
 const stepItems = [...document.querySelectorAll(".steps li")];
 const MAX_BYTES = 20 * 1024 * 1024;
+const MANUAL_DRAFT_KEY = "cargo-manual-draft";
+const MANUAL_FIELDS = ["name", "l", "w", "h", "qty", "unitKg"];
 
 const state = {
   step: 1,
+  source: "upload",
   filename: "",
   files: [],
   warnings: [],
@@ -20,12 +23,17 @@ const state = {
   loadingText: "",
   ocr: false,
   rows: [],
+  rowsFrom: "",
+  uploadSnapshot: null,
   plans: [],
   totals: null,
   selectedId: "",
   layout: null,
   highlightId: "",
   stackable: true,
+  manualRows: [],
+  manualStackable: true,
+  manualShowErrors: false,
   planNote: "",
   diagramView: "2d",
 };
@@ -125,6 +133,50 @@ function uploadIcon() {
 }
 
 function renderUpload() {
+  const manual = state.source === "manual";
+  const children = [sourceTabs()];
+  if (manual) children.push(...renderManualPanel());
+  else children.push(...renderUploadPanel());
+  return el("section", {
+    class: manual ? "panel panel-manual" : "panel panel-upload",
+    attrs: {
+      id: manual ? "source-panel-manual" : "source-panel-upload",
+      role: "tabpanel",
+      "aria-labelledby": manual ? "source-tab-manual" : "source-tab-upload",
+    },
+  }, children);
+}
+
+function sourceTabs() {
+  return el("div", { class: "source-tabs", attrs: { role: "tablist", "aria-label": "輸入方式" } }, [
+    sourceTab("upload", "上傳裝箱單"),
+    sourceTab("manual", "手動輸入"),
+  ]);
+}
+
+function sourceTab(id, label) {
+  const selected = state.source === id;
+  return el("button", {
+    text: label,
+    attrs: {
+      type: "button",
+      role: "tab",
+      id: `source-tab-${id}`,
+      "aria-selected": selected ? "true" : "false",
+      "aria-controls": `source-panel-${id}`,
+      tabindex: selected ? "0" : "-1",
+    },
+    on: {
+      click: () => {
+        if (state.source === id) return;
+        state.source = id;
+        render();
+      },
+    },
+  });
+}
+
+function renderUploadPanel() {
   const fileInput = el("input", {
     class: "file-input",
     attrs: {
@@ -196,7 +248,165 @@ function renderUpload() {
     children.push(el("p", { class: "banner error", attrs: { role: "alert" }, text: state.error }));
   }
   children.push(drop);
-  return el("section", { class: "panel panel-upload" }, children);
+  return children;
+}
+
+function renderManualPanel() {
+  const children = [
+    el("div", { class: "screen-head" }, [
+      el("h2", { text: "手動輸入貨物明細" }),
+      el("p", {
+        class: "quiet",
+        text: "欄位和上傳後的核對明細相同。長、寬、高是公分，重量是單件毛重（公斤）。填完按開始配載，會用同一套櫃型計算和配載圖。",
+      }),
+    ]),
+    el("p", { class: "scroll-hint", text: "表格可左右滑動，查看尺寸、重量和是否需正放。" }),
+    el("div", { class: "table-wrap" }, [manualTable()]),
+    renderStackChoice({
+      legend: "可否堆疊",
+      note: "這票貨共用一種堆疊方式。可堆疊的貨可以疊在別的貨上面；不可堆疊時，每一件都放在櫃底。",
+      value: state.manualStackable,
+      group: "manual-stackable",
+      onChange: (value) => {
+        state.manualStackable = value;
+        saveManualDraft();
+      },
+    }),
+    manualActions(),
+  ];
+  return children;
+}
+
+function manualTable() {
+  const table = el("table", { class: "manual-table" });
+  table.append(
+    el("thead", {}, [
+      el("tr", {}, [
+        ["品名", false],
+        ["長 cm", true],
+        ["寬 cm", true],
+        ["高 cm", true],
+        ["數量", true],
+        ["單件毛重 kg", true],
+        ["需正放", false],
+        ["", false],
+      ].map(([label, numeric]) => el("th", {
+        class: numeric ? "num" : "",
+        attrs: label ? { scope: "col" } : null,
+        text: label,
+      }))),
+    ])
+  );
+  const tbody = el("tbody");
+  state.manualRows.forEach((row, index) => {
+    tbody.append(
+      el("tr", {}, [
+        el("td", {}, [manualField(index, "name", "text")]),
+        el("td", { class: "num" }, [manualField(index, "l", "number")]),
+        el("td", { class: "num" }, [manualField(index, "w", "number")]),
+        el("td", { class: "num" }, [manualField(index, "h", "number")]),
+        el("td", { class: "num" }, [manualField(index, "qty", "number")]),
+        el("td", { class: "num" }, [manualField(index, "unitKg", "number")]),
+        el("td", { class: "tip-cell" }, [uprightInput(index, row)]),
+        el("td", {}, [
+          el("button", {
+            class: "tiny",
+            text: "刪除",
+            attrs: { type: "button", "aria-label": `刪除第 ${index + 1} 列` },
+            on: { click: () => removeManualRow(index) },
+          }),
+        ]),
+      ])
+    );
+  });
+  table.append(tbody);
+  return table;
+}
+
+function manualField(index, key, type) {
+  const row = state.manualRows[index];
+  const errorId = `manual-error-${index}-${key}`;
+  const message = manualRowShowsErrors(index) ? manualFieldError(row, key) : "";
+  const input = el("input", {
+    attrs: {
+      type,
+      "data-index": String(index),
+      "data-key": key,
+      inputmode: type === "number" ? "decimal" : "text",
+      autocomplete: "off",
+      "aria-label": `${manualKeyLabel(key)}，第 ${index + 1} 列`,
+      "aria-invalid": message ? "true" : "false",
+      "aria-describedby": message ? errorId : null,
+    },
+  });
+  input.value = row[key] == null ? "" : String(row[key]);
+  if (type === "number") {
+    input.step = "any";
+    input.addEventListener("wheel", (event) => event.preventDefault(), { passive: false });
+  }
+  input.addEventListener("input", () => {
+    state.manualRows[index][key] = input.value;
+    saveManualDraft();
+    if (state.manualShowErrors) refreshManualErrors();
+  });
+  const error = el("p", {
+    class: "field-error",
+    attrs: { id: errorId, "data-error-for": key },
+    text: message,
+  });
+  error.hidden = !message;
+  return el("div", { class: "manual-field" }, [input, error]);
+}
+
+function uprightInput(index, row) {
+  const input = el("input", {
+    attrs: {
+      type: "checkbox",
+      "data-key": "upright",
+      "aria-label": `是否需正放，第 ${index + 1} 列`,
+    },
+  });
+  input.checked = row.upright === true;
+  input.addEventListener("change", () => {
+    state.manualRows[index].upright = input.checked;
+    saveManualDraft();
+    if (state.manualShowErrors) refreshManualErrors();
+  });
+  return input;
+}
+
+function manualActions() {
+  const importButton = el("button", {
+    class: "secondary",
+    text: "從上傳結果帶入",
+    attrs: { type: "button" },
+    on: { click: importUploadToManual },
+  });
+  const canImport = Boolean(state.uploadSnapshot && state.uploadSnapshot.rows.length);
+  importButton.disabled = !canImport;
+  importButton.title = canImport ? "把目前上傳或核對過的明細抄進這張表" : "請先上傳裝箱單";
+  return el("div", { class: "bottom manual-bottom" }, [
+    importButton,
+    el("div", { class: "row-actions" }, [
+      el("button", {
+        class: "secondary",
+        text: "清空",
+        attrs: { type: "button" },
+        on: { click: clearManualDraft },
+      }),
+      el("button", {
+        class: "secondary",
+        text: "新增一列",
+        attrs: { type: "button" },
+        on: { click: addManualRow },
+      }),
+      el("button", {
+        text: "開始配載",
+        attrs: { type: "button" },
+        on: { click: startManualLoad },
+      }),
+    ]),
+  ]);
 }
 
 function renderReview() {
@@ -322,27 +532,36 @@ function renderReview() {
   return el("section", { class: "panel" }, children);
 }
 
-function renderStackChoice() {
+function renderStackChoice(options = {}) {
+  const legend = options.legend || "堆疊";
+  const note = options.note || "核對完明細後選一種。可堆疊的貨可以疊在別的貨上面；不可堆疊時，每一件都放在櫃底。";
+  const current = options.value === undefined ? state.stackable : options.value;
+  const onChange = options.onChange || ((value) => {
+    state.stackable = value;
+    syncUploadSnapshot();
+  });
   return el("fieldset", { class: "stack-block" }, [
-    el("legend", { text: "堆疊" }),
-    el("p", {
-      class: "quiet",
-      text: "核對完明細後選一種。可堆疊的貨可以疊在別的貨上面；不可堆疊時，每一件都放在櫃底。",
-    }),
+    el("legend", { text: legend }),
+    el("p", { class: "quiet", text: note }),
     el("div", { class: "stack-choice" }, [
-      stackOption(true, "可堆疊", "貨可以疊在別的貨上面。"),
-      stackOption(false, "不可堆疊", "每一件都放在櫃底，不往上疊。"),
+      stackOption(true, "可堆疊", "貨可以疊在別的貨上面。", current, onChange, options.group),
+      stackOption(false, "不可堆疊", "每一件都放在櫃底，不往上疊。", current, onChange, options.group),
     ]),
   ]);
 }
 
-function stackOption(value, title, detail) {
+function stackOption(value, title, detail, current = state.stackable, onChange = null, groupName = "stackable") {
   const input = el("input", {
-    attrs: { type: "radio", name: "stackable", value: value ? "yes" : "no" },
+    attrs: { type: "radio", name: groupName, value: value ? "yes" : "no" },
   });
-  input.checked = state.stackable === value;
+  input.checked = current === value;
   input.addEventListener("change", () => {
-    if (input.checked) state.stackable = value;
+    if (!input.checked) return;
+    if (onChange) onChange(value);
+    else {
+      state.stackable = value;
+      syncUploadSnapshot();
+    }
   });
   return el("label", { class: "stack-option" }, [
     input,
@@ -365,6 +584,7 @@ function tipInput(index, row) {
   input.checked = canTip(row);
   input.addEventListener("change", () => {
     state.rows[index].tippable = input.checked;
+    syncUploadSnapshot();
   });
   return input;
 }
@@ -402,6 +622,7 @@ function fieldInput(index, key, type, value) {
     input.removeAttribute("title");
     refreshRow(input.closest("tr"));
     refreshTotals();
+    syncUploadSnapshot();
   });
   return input;
 }
@@ -1404,12 +1625,14 @@ function setStep(step) {
 
 function addRow() {
   state.rows.push(blankRow());
+  syncUploadSnapshot();
   render();
 }
 
 function removeRow(index) {
   state.rows.splice(index, 1);
   if (state.rows.length === 0) state.rows.push(blankRow());
+  syncUploadSnapshot();
   render();
 }
 
@@ -1506,6 +1729,8 @@ async function readFiles(fileList) {
   state.rows = rows.length ? rows.map(asEditable) : [blankRow()];
   state.ocr = anyOcr;
   state.stackable = true;
+  state.rowsFrom = "upload";
+  syncUploadSnapshot();
   state.selectedId = "";
   state.layout = null;
   state.highlightId = "";
@@ -1547,6 +1772,8 @@ async function loadSample() {
     state.warnings = parsed.warnings;
     state.rows = parsed.rows.length ? parsed.rows.map(asEditable) : [blankRow()];
     state.stackable = true;
+    state.rowsFrom = "upload";
+    syncUploadSnapshot();
     state.selectedId = "";
     state.layout = null;
     state.highlightId = "";
@@ -1596,4 +1823,218 @@ async function extractItems(buffer) {
   return items;
 }
 
+function blankManualRow() {
+  return { name: "", l: "", w: "", h: "", qty: "", unitKg: "", upright: false };
+}
+
+function normalizeManualRow(row) {
+  const next = blankManualRow();
+  if (!row || typeof row !== "object") return next;
+  next.name = row.name == null ? "" : String(row.name);
+  for (const key of ["l", "w", "h", "qty", "unitKg"]) {
+    next[key] = row[key] == null ? "" : String(row[key]);
+  }
+  next.upright = row.upright === true;
+  return next;
+}
+
+function isBlankManualRow(row) {
+  if (!row) return true;
+  const textEmpty = MANUAL_FIELDS.every((key) => String(row[key] ?? "").trim() === "");
+  return textEmpty && row.upright !== true;
+}
+
+function manualDraftHasData() {
+  return state.manualRows.some((row) => !isBlankManualRow(row));
+}
+
+function manualKeyLabel(key) {
+  return {
+    name: "品名",
+    l: "長",
+    w: "寬",
+    h: "高",
+    qty: "數量",
+    unitKg: "單件毛重",
+  }[key];
+}
+
+function manualFieldError(row, key) {
+  const label = manualKeyLabel(key);
+  const raw = String(row[key] ?? "").trim();
+  if (key === "name") return raw ? "" : "請填品名";
+  if (!raw) return `請填${label}`;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return `${label}要大於 0`;
+  return "";
+}
+
+function manualRowsToCheck() {
+  const filled = state.manualRows.filter((row) => !isBlankManualRow(row));
+  return filled.length ? filled : state.manualRows;
+}
+
+function manualRowShowsErrors(index) {
+  if (!state.manualShowErrors) return false;
+  return manualRowsToCheck().includes(state.manualRows[index]);
+}
+
+function refreshManualErrors() {
+  const table = stage.querySelector(".manual-table");
+  if (!table) return;
+  table.querySelectorAll("tbody tr").forEach((tr, index) => {
+    const row = state.manualRows[index];
+    const show = manualRowShowsErrors(index);
+    tr.querySelectorAll("[data-error-for]").forEach((node) => {
+      const key = node.dataset.errorFor;
+      const message = show && row ? manualFieldError(row, key) : "";
+      node.textContent = message;
+      node.hidden = !message;
+      const input = tr.querySelector(`[data-key="${key}"]`);
+      if (!input) return;
+      input.setAttribute("aria-invalid", message ? "true" : "false");
+      if (message) input.setAttribute("aria-describedby", node.id);
+      else input.removeAttribute("aria-describedby");
+    });
+  });
+}
+
+function loadManualDraft() {
+  state.manualRows = [blankManualRow()];
+  state.manualStackable = true;
+  try {
+    const raw = localStorage.getItem(MANUAL_DRAFT_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.rows)) return;
+    const rows = data.rows.map(normalizeManualRow);
+    state.manualRows = rows.length ? rows : [blankManualRow()];
+    if (typeof data.stackable === "boolean") state.manualStackable = data.stackable;
+  } catch (error) {
+    state.manualRows = [blankManualRow()];
+    state.manualStackable = true;
+  }
+}
+
+function saveManualDraft() {
+  try {
+    localStorage.setItem(MANUAL_DRAFT_KEY, JSON.stringify({
+      rows: state.manualRows.map(normalizeManualRow),
+      stackable: state.manualStackable,
+    }));
+  } catch (error) {
+    /* 這台瀏覽器不讓網頁寫入本機儲存時，這次仍可繼續配載。 */
+  }
+}
+
+function addManualRow() {
+  state.manualRows.push(blankManualRow());
+  saveManualDraft();
+  render();
+  const names = stage.querySelectorAll('.manual-table input[data-key="name"]');
+  const last = names[names.length - 1];
+  if (last) last.focus();
+}
+
+function removeManualRow(index) {
+  state.manualRows.splice(index, 1);
+  if (state.manualRows.length === 0) state.manualRows.push(blankManualRow());
+  saveManualDraft();
+  render();
+}
+
+function clearManualDraft() {
+  if (!window.confirm("要清空手動輸入的資料嗎？清空後無法還原。")) return;
+  state.manualRows = [blankManualRow()];
+  state.manualStackable = true;
+  state.manualShowErrors = false;
+  try {
+    localStorage.removeItem(MANUAL_DRAFT_KEY);
+  } catch (error) {
+    /* 清不掉儲存時，畫面仍先回到空白列。 */
+  }
+  render();
+}
+
+function toManualRow(row) {
+  const upright = row.tippable === true ? false : row.tippable === false ? true : !canTip(row);
+  return {
+    name: row.name == null ? "" : String(row.name),
+    l: row.l == null ? "" : String(row.l),
+    w: row.w == null ? "" : String(row.w),
+    h: row.h == null ? "" : String(row.h),
+    qty: row.qty == null ? "" : String(row.qty),
+    unitKg: row.unitKg == null ? "" : String(row.unitKg),
+    upright,
+  };
+}
+
+function importUploadToManual() {
+  const snapshot = state.uploadSnapshot;
+  if (!snapshot || !snapshot.rows.length) return;
+  if (manualDraftHasData() && !window.confirm("目前的手動輸入會被上傳結果取代，要繼續嗎？")) return;
+  state.manualRows = snapshot.rows.map(toManualRow);
+  if (!state.manualRows.length) state.manualRows.push(blankManualRow());
+  state.manualStackable = snapshot.stackable !== false;
+  state.manualShowErrors = false;
+  state.source = "manual";
+  saveManualDraft();
+  render();
+}
+
+function startManualLoad() {
+  state.manualShowErrors = true;
+  const targets = manualRowsToCheck();
+  const invalid = targets.some((row) => MANUAL_FIELDS.some((key) => manualFieldError(row, key)));
+  if (invalid) {
+    render();
+    const first = stage.querySelector('.manual-table input[aria-invalid="true"]');
+    if (first) first.focus();
+    return;
+  }
+  const usable = state.manualRows.filter((row) => !isBlankManualRow(row));
+  state.rows = usable.map((row) => ({
+    name: String(row.name).trim(),
+    l: String(row.l).trim(),
+    w: String(row.w).trim(),
+    h: String(row.h).trim(),
+    qty: String(row.qty).trim(),
+    unitKg: String(row.unitKg).trim(),
+    tippable: !row.upright,
+  }));
+  state.stackable = state.manualStackable;
+  state.rowsFrom = "manual";
+  state.filename = "手動輸入";
+  state.files = [{ name: "手動輸入" }];
+  state.warnings = [];
+  state.ocr = false;
+  state.error = "";
+  state.manualShowErrors = false;
+  goToPlans();
+}
+
+function cloneEditableRow(row) {
+  const copy = {
+    name: row.name,
+    l: row.l,
+    w: row.w,
+    h: row.h,
+    qty: row.qty,
+    unitKg: row.unitKg,
+  };
+  if (row.tippable === true || row.tippable === false) copy.tippable = row.tippable;
+  if (row.confidence) copy.confidence = { ...row.confidence };
+  if (row.alert) copy.alert = row.alert;
+  return copy;
+}
+
+function syncUploadSnapshot() {
+  if (state.rowsFrom !== "upload") return;
+  state.uploadSnapshot = {
+    stackable: state.stackable,
+    rows: state.rows.map(cloneEditableRow),
+  };
+}
+
+loadManualDraft();
 render();
