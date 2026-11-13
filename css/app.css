@@ -82,7 +82,45 @@ button, input { font: inherit; color: inherit; }
   height: auto;
   max-height: 210px;
   object-fit: contain;
+  object-position: right center;
   filter: drop-shadow(0 14px 24px rgba(5, 25, 22, 0.24));
+}
+
+body[data-step="1"] .mast {
+  background: #02142c;
+}
+
+body[data-step="1"] .hero-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 360px;
+  overflow: hidden;
+  background: #02142c;
+}
+
+body[data-step="1"] .hero-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+  object-position: right center;
+  filter: none;
+}
+
+body[data-step="1"] .hero-copy {
+  position: relative;
+  z-index: 1;
+  width: min(26rem, 42%);
+  padding: 24px 18px 24px 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+body[data-step="1"] .hero-copy .lede {
+  max-width: none;
+  color: #f4ecdf;
 }
 
 body[data-step="2"] .hero-row,
@@ -1114,6 +1152,28 @@ button.piece-name.is-open .name-full { display: inline; }
   }
   .hero-image {
     max-height: 94px;
+  }
+  body[data-step="1"] .hero-row {
+    display: flex;
+    align-items: center;
+    min-height: 210px;
+  }
+  body[data-step="1"] .hero-image {
+    max-height: none;
+    object-fit: contain;
+    object-position: right center;
+  }
+  body[data-step="1"] .hero-copy {
+    width: min(14.5rem, 40%);
+    padding: 12px 8px 12px 0;
+  }
+  body[data-step="1"] .brand {
+    align-items: flex-start;
+    gap: 8px;
+  }
+  body[data-step="1"] .lede {
+    font-size: 13px;
+    line-height: 1.45;
   }
   .steps {
     width: 100%;
