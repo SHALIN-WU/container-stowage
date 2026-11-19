@@ -112,9 +112,10 @@ body[data-step="1"] .hero-bg {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center;
+  object-position: right center;
   filter: brightness(1.04) contrast(1.03) saturate(1.05);
-  transform: scale(0.94);
+  transform: scale(0.86);
+  transform-origin: right center;
   animation: hero-bg-drift 22s ease-in-out infinite alternate;
 }
 
@@ -190,12 +191,18 @@ body[data-step="1"] .hero-copy {
 }
 
 body[data-step="1"] h1 {
-  font-size: clamp(30px, 3.4vw, 40px);
+  font-size: clamp(28px, 3vw, 34px);
+  white-space: nowrap;
 }
 
 body[data-step="1"] .hero-copy .lede {
   max-width: 34rem;
   color: #f4ecdf;
+}
+
+.lede-line {
+  display: block;
+  white-space: nowrap;
 }
 
 body[data-step="1"] .steps {
@@ -222,8 +229,8 @@ body[data-step="4"] .hero-image {
 }
 
 @keyframes hero-bg-drift {
-  from { transform: scale(0.94) translate3d(0, 0, 0); }
-  to { transform: scale(0.98) translate3d(-1%, -0.5%, 0); }
+  from { transform: scale(0.86) translate3d(0, 0, 0); }
+  to { transform: scale(0.9) translate3d(-0.5%, -0.3%, 0); }
 }
 
 @keyframes hero-copy-in {
@@ -257,7 +264,7 @@ body[data-step="4"] .hero-image {
   }
 
   body[data-step="1"] .hero-bg {
-    transform: scale(0.94);
+    transform: scale(0.86);
   }
 }
 
@@ -1299,7 +1306,7 @@ button.piece-name.is-open .name-full { display: inline; }
   body[data-step="1"] .mast-inner { padding: 26px 0 20px; }
   body[data-step="1"] .hero-bg { object-position: 78% center; }
   body[data-step="1"] .hero-copy { width: min(26rem, 58%); }
-  body[data-step="1"] h1 { font-size: 28px; }
+  body[data-step="1"] h1 { font-size: 26px; }
   body[data-step="1"] .mark { width: 40px; height: 40px; }
   body[data-step="1"] .hero-image {
     right: -4%;
@@ -1371,10 +1378,13 @@ button.piece-name.is-open .name-full { display: inline; }
     font-size: 13px;
     line-height: 1.45;
   }
+  body[data-step="1"] .lede-line {
+    white-space: normal;
+  }
   body[data-step="1"] .hero-bg {
     object-fit: cover;
     object-position: right center;
-    transform: scale(0.9);
+    transform: scale(0.82);
     animation: none;
   }
   body[data-step="1"] .hero-backdrop::after {
