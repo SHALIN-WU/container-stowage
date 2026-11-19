@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <title>貨物明細櫃型試算</title>
-    <link rel="stylesheet" href="css/app.css?v=2.2" />
+    <link rel="stylesheet" href="css/app.css?v=3.0" />
     <script type="importmap">
       {
         "imports": {
@@ -17,6 +17,17 @@
   <body data-step="1">
     <a class="skip" href="#stage">跳到主要內容</a>
     <header class="mast">
+      <div class="hero-backdrop" aria-hidden="true">
+        <img
+          class="hero-bg"
+          src="images/container-planner-hero.jpg?v=3.0"
+          alt=""
+          width="1024"
+          height="576"
+          decoding="async"
+          fetchpriority="high"
+        />
+      </div>
       <div class="mast-inner">
         <div class="hero-row">
           <div class="hero-copy">
@@ -34,14 +45,10 @@
             <p class="lede">
               上傳裝箱單，核對尺寸、重量、數量後，算出要用幾個、什麼櫃，再排出配載圖。圖上每一件都有編號、尺寸和重量。
             </p>
+            <p class="hero-types" aria-label="支援櫃型">
+              <span>20′</span><span>40′</span><span>20′ FR</span><span>40′ FR</span><span>OT</span>
+            </p>
           </div>
-          <img
-            class="hero-image"
-            src="images/container-hero-3d.webp?v=2.2"
-            alt="打開的貨櫃中整齊排放不同尺寸的貨物"
-            width="1280"
-            height="720"
-          />
         </div>
         <ol class="steps" aria-label="作業步驟">
           <li data-step="1"><span class="step-body"><span class="step-index">1</span>上傳裝箱單</span></li>
@@ -68,6 +75,6 @@
         location.replace("http://localhost:8765/");
       }
     </script>
-    <script type="module" src="js/app.js?v=2.2"></script>
+    <script type="module" src="js/app.js?v=3.0"></script>
   </body>
 </html>
