@@ -198,29 +198,6 @@ body[data-step="1"] .hero-copy .lede {
   color: #f4ecdf;
 }
 
-.hero-types {
-  display: none;
-}
-
-body[data-step="1"] .hero-types {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin: 18px 0 0;
-}
-
-body[data-step="1"] .hero-types span {
-  padding: 4px 10px;
-  border: 1px solid rgba(244, 234, 216, 0.25);
-  border-radius: 999px;
-  background: rgba(2, 20, 44, 0.36);
-  color: rgba(255, 253, 248, 0.88);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  backdrop-filter: blur(6px);
-}
-
 body[data-step="1"] .steps {
   margin-top: 22px;
   animation: hero-copy-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -1393,14 +1370,6 @@ button.piece-name.is-open .name-full { display: inline; }
     max-width: 20rem;
     font-size: 13px;
     line-height: 1.45;
-  }
-  body[data-step="1"] .hero-types {
-    gap: 5px;
-    margin-top: 12px;
-  }
-  body[data-step="1"] .hero-types span {
-    padding: 3px 8px;
-    font-size: 11px;
   }
   body[data-step="1"] .hero-bg {
     object-fit: cover;
