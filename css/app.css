@@ -1435,25 +1435,174 @@ button.piece-name.is-open .name-full { display: inline; }
 }
 
 @media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
   .mast, .skip, .bottom, .steps, .view-tabs, .view-3d { display: none !important; }
   .view-2d,
   .view-2d[hidden] { display: block !important; }
-  body { background: white; }
-  .stage { width: auto; padding: 0; }
-  .panel, .sheet { box-shadow: none; }
-  .view-scroll { overflow: visible; border: 0; }
-  .deck svg { width: 100% !important; height: auto !important; }
-  .deck { break-inside: avoid; }
-  button.piece-name,
-  button.piece-name.is-open,
-  button.piece-name:hover,
-  button.piece-name.is-open:hover {
-    max-width: 32em;
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
+  html, body {
+    background: white;
+    width: 100% !important;
+    min-width: 0 !important;
+    overflow: visible !important;
+    transform: none !important;
+    zoom: 1 !important;
+    font-stretch: normal !important;
   }
-  button.piece-name .name-brief { display: none !important; }
-  button.piece-name .name-full { display: inline !important; }
+  body, body * {
+    transform: none !important;
+    zoom: 1 !important;
+    font-stretch: normal !important;
+  }
+  .stage,
+  .panel,
+  .view-2d,
+  .sheet,
+  .deck,
+  .view-scroll,
+  .piece-list,
+  .piece-list .table-wrap {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow: visible !important;
+    overflow-x: visible !important;
+  }
+  .stage { margin: 0 !important; padding: 0 !important; }
+  .panel, .sheet { box-shadow: none; }
+  .panel { padding: 0 !important; border: 0; }
+  .view-scroll { border: 0; }
+  .deck svg {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .deck { break-inside: avoid; }
+
+  .piece-list,
+  .piece-list .quiet,
+  .piece-list .piece-table,
+  .piece-list .piece-table th,
+  .piece-list .piece-table td,
+  .piece-list button.piece-name {
+    font-family: "Microsoft JhengHei", "Noto Sans TC", Arial, sans-serif !important;
+    font-stretch: normal !important;
+    letter-spacing: normal !important;
+    line-height: normal !important;
+    transform: none !important;
+    zoom: 1 !important;
+  }
+
+  .piece-list .quiet,
+  .piece-list .piece-table,
+  .piece-list .piece-table th,
+  .piece-list .piece-table td,
+  .piece-list button.piece-name {
+    font-size: 9pt !important;
+  }
+
+  .piece-list .table-wrap {
+    background: none;
+    border-radius: 0;
+  }
+
+  .piece-list table.piece-table {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+    font-size: 9pt;
+  }
+
+  .piece-list .piece-table thead { display: table-header-group; }
+
+  .piece-list .piece-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .piece-list .piece-table th,
+  .piece-list .piece-table td {
+    min-width: 0 !important;
+    padding: 0.8mm 0.45mm !important;
+    font-size: 9pt !important;
+    line-height: normal !important;
+    vertical-align: middle;
+    overflow: visible !important;
+  }
+
+  .piece-list .piece-table .swatch-col,
+  .piece-list .piece-table .swatch-cell,
+  .piece-list .piece-table th:nth-child(2),
+  .piece-list .piece-table td:nth-child(2),
+  .piece-list .piece-table .bin {
+    text-align: center !important;
+    white-space: nowrap !important;
+  }
+
+  .piece-list .piece-table th.num,
+  .piece-list .piece-table td.num {
+    text-align: right !important;
+    white-space: nowrap !important;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .piece-list .piece-table th:nth-child(3),
+  .piece-list .piece-table td.name-cell {
+    width: 40% !important;
+    max-width: 40% !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+
+  .piece-list button.piece-name,
+  .piece-list button.piece-name.is-open,
+  .piece-list button.piece-name:hover,
+  .piece-list button.piece-name.is-open:hover {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+  .piece-list button.piece-name .name-brief { display: none !important; }
+  .piece-list button.piece-name .name-full { display: inline !important; }
+
+  .piece-list .piece-table th:nth-child(1),
+  .piece-list .piece-table td:nth-child(1) { width: 8mm !important; }
+  .piece-list .piece-table th:nth-child(2),
+  .piece-list .piece-table td:nth-child(2) { width: 14mm !important; }
+  .piece-list .piece-table th:nth-child(4),
+  .piece-list .piece-table td:nth-child(4) { width: 32mm !important; }
+  .piece-list .piece-table th:nth-child(5),
+  .piece-list .piece-table td:nth-child(5) { width: 18mm !important; }
+  .piece-list .piece-table th:nth-child(6),
+  .piece-list .piece-table td:nth-child(6) { width: 14mm !important; }
+  .piece-list .piece-table th:nth-child(7),
+  .piece-list .piece-table td:nth-child(7) { width: 22mm !important; }
+  .piece-list .piece-table th:nth-child(8),
+  .piece-list .piece-table td:nth-child(8) { width: 18mm !important; }
+  .piece-list .piece-table th:nth-child(9),
+  .piece-list .piece-table td:nth-child(9) { width: 16mm !important; }
+  .piece-list .piece-table th:nth-child(10),
+  .piece-list .piece-table td:nth-child(10) { width: 18mm !important; }
+
+  .piece-list .piece-table th[title="轉向、超出或未排入"],
+  .piece-list .piece-table td.note {
+    width: 8% !important;
+    max-width: 8% !important;
+    padding-left: 2.5mm !important;
+    text-align: center !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+
   * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
