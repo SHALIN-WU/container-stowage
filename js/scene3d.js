@@ -6,6 +6,23 @@ import { CONTAINERS } from "./planner.js?v=2.1";
 const EPS = 0.05;
 const SEAM = 0.2;
 const BASE_PLAY_MS = 700;
+const TONE_EXPOSURE = 1.1;
+const HEMI_INTENSITY = 1.25;
+const AMBIENT_INTENSITY = 0.4;
+const KEY_INTENSITY = 2.0;
+const FILL_INTENSITY = 0.7;
+const SHADOW_MAP = 2048;
+const BACKGROUND = 0xe4dccd;
+const GROUND_COLOR = 0xc9bda6;
+const GRID_COLOR = 0x8c7d63;
+const SHELL_T = 2.6;
+const RIB_PITCH = 27;
+const VIEW_MS = 400;
+const DROP_MS = 250;
+const DROP_HEIGHT = 40;
+
+/** 同一次開啟的畫面裡記住畫質選擇；換方案重建 3D 時沿用。 */
+let qualityMode = "high";
 
 /** 1× 約 0.7 秒一件。5×、20× 依此縮短。 */
 export const PLAY_SPEEDS = [1, 5, 20];
@@ -167,8 +184,10 @@ export function unionAabb(meshes) {
 }
 
 function boxMaterial(color, role) {
-  const material = new THREE.MeshLambertMaterial({
+  const material = new THREE.MeshStandardMaterial({
     color,
+    roughness: 0.82,
+    metalness: 0,
     polygonOffset: role === "body",
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
@@ -182,7 +201,7 @@ let hatchLineMaterial = null;
 
 function sharedHatchLines() {
   if (!hatchLineMaterial) {
-    hatchLineMaterial = new THREE.LineBasicMaterial({ color: 0xc4382b });
+    hatchLineMaterial = new THREE.LineBasicMaterial({ color: 0xc4382b, toneMapped: false });
     hatchLineMaterial.userData.shared = true;
   }
   return hatchLineMaterial;
@@ -227,6 +246,63 @@ function hatchLineSegments(dl, dh, dw, cut) {
   return lines;
 }
 
+const CONTACT_PAD = 9;
+const CONTACT_LIFT = 0.25;
+let contactMaterial = null;
+
+function sharedContactMaterial() {
+  if (!contactMaterial) {
+    contactMaterial = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    contactMaterial.userData.shared = true;
+  }
+  return contactMaterial;
+}
+
+/** 貼地貨物底下的柔和暗影：內圈不透明、外圈漸淡，範圍限制在底板內。 */
+export function contactShadowMesh(box, bin) {
+  if (box.y > EPS) return null;
+  const x0 = Math.max(0, box.x);
+  const x1 = Math.min(bin.l, box.x + box.dl);
+  const z0 = Math.max(0, box.z);
+  const z1 = Math.min(bin.w, box.z + box.dw);
+  if (x1 - x0 <= EPS || z1 - z0 <= EPS) return null;
+  const ox0 = Math.max(0, x0 - CONTACT_PAD);
+  const ox1 = Math.min(bin.l, x1 + CONTACT_PAD);
+  const oz0 = Math.max(0, z0 - CONTACT_PAD);
+  const oz1 = Math.min(bin.w, z1 + CONTACT_PAD);
+  const y = CONTACT_LIFT;
+  const positions = [
+    x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1,
+    ox0, y, oz0, ox1, y, oz0, ox1, y, oz1, ox0, y, oz1,
+  ];
+  const inner = [0.08, 0.06, 0.04, 0.42];
+  const outer = [0.08, 0.06, 0.04, 0];
+  const colors = [...inner, ...inner, ...inner, ...inner, ...outer, ...outer, ...outer, ...outer];
+  const index = [0, 2, 1, 0, 3, 2];
+  for (let side = 0; side < 4; side += 1) {
+    const a = side;
+    const b = (side + 1) % 4;
+    index.push(a + 4, a, b, a + 4, b, b + 4);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 4));
+  geometry.setIndex(index);
+  const mesh = new THREE.Mesh(geometry, sharedContactMaterial());
+  mesh.userData.role = "deco";
+  mesh.renderOrder = 2;
+  mesh.raycast = () => {};
+  return mesh;
+}
+
 export function buildCargoMeshes(box, bin, color) {
   const meshes = [];
   for (const part of cargoParts(box, bin)) {
@@ -234,39 +310,198 @@ export function buildCargoMeshes(box, bin, color) {
     mesh.position.set(part.x + part.dl / 2, part.y + part.dh / 2, part.z + part.dw / 2);
     mesh.userData.pieceId = box.item.id;
     mesh.userData.role = part.role;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     meshes.push(mesh);
     if (part.role !== "overhang") continue;
     const edges = new THREE.LineSegments(
       new THREE.EdgesGeometry(mesh.geometry),
-      new THREE.LineBasicMaterial({ color: 0xc4382b })
+      new THREE.LineBasicMaterial({ color: 0xc4382b, toneMapped: false })
     );
     mesh.add(edges);
     const lines = hatchLineSegments(part.dl, part.dh, part.dw, part.cut);
     if (lines) mesh.add(lines);
+    const glow = new THREE.Mesh(new THREE.BoxGeometry(part.dl + 1.2, part.dh + 1.2, part.dw + 1.2), sharedOverhangGlow());
+    glow.userData.role = "deco";
+    glow.renderOrder = 6;
+    glow.raycast = () => {};
+    mesh.add(glow);
   }
   return meshes;
 }
 
-function wallMaterial(color, opacity) {
-  return new THREE.MeshLambertMaterial({
+let overhangGlowMaterial = null;
+
+function sharedOverhangGlow() {
+  if (!overhangGlowMaterial) {
+    overhangGlowMaterial = new THREE.MeshBasicMaterial({
+      color: 0xd8402f,
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    overhangGlowMaterial.userData.shared = true;
+  }
+  return overhangGlowMaterial;
+}
+
+const textureCache = new Map();
+
+function cachedTexture(key, width, height, draw, colorSpace) {
+  if (typeof document === "undefined") return null;
+  let texture = textureCache.get(key);
+  if (!texture) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    draw(canvas.getContext("2d"), width, height);
+    texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.anisotropy = 4;
+    if (colorSpace) texture.colorSpace = colorSpace;
+    texture.userData.shared = true;
+    textureCache.set(key, texture);
+  }
+  return texture;
+}
+
+/** 共用同一張畫布，只各自設定重複次數；clone 共用同一份上傳到顯示卡的影像。 */
+function tiled(base, repeatX, repeatY) {
+  if (!base) return null;
+  const texture = base.clone();
+  texture.userData = {};
+  texture.repeat.set(repeatX, repeatY);
+  return texture;
+}
+
+/** 波紋鐵皮一個週期：凸面、下斜面、凹面、上斜面。 */
+const RIB_PROFILE = [
+  { end: 0.3, shade: 1, alpha: 1, slope: 0 },
+  { end: 0.42, shade: 0.62, alpha: 0.78, slope: -1 },
+  { end: 0.8, shade: 0.8, alpha: 0, slope: 0 },
+  { end: 0.92, shade: 0.92, alpha: 0.78, slope: 1 },
+  { end: 1, shade: 1, alpha: 1, slope: 0 },
+];
+
+function ribSegment(u) {
+  return RIB_PROFILE.find((part) => u < part.end) || RIB_PROFILE[RIB_PROFILE.length - 1];
+}
+
+function corrugatedTexture(valleyAlpha) {
+  return cachedTexture(`rib-${valleyAlpha}`, 64, 4, (ctx, width, height) => {
+    for (let x = 0; x < width; x += 1) {
+      const part = ribSegment((x + 0.5) / width);
+      const alpha = part.alpha === 0 ? valleyAlpha : part.alpha === 1 ? 1 : valleyAlpha + (1 - valleyAlpha) * part.alpha;
+      const level = Math.round(255 * part.shade);
+      ctx.fillStyle = `rgba(${level}, ${level}, ${level}, ${alpha})`;
+      ctx.fillRect(x, 0, 1, height);
+    }
+  }, THREE.SRGBColorSpace);
+}
+
+function corrugatedNormal() {
+  return cachedTexture("rib-normal", 64, 4, (ctx, width, height) => {
+    for (let x = 0; x < width; x += 1) {
+      const part = ribSegment((x + 0.5) / width);
+      const nx = part.slope * 0.62;
+      const nz = Math.sqrt(1 - nx * nx);
+      ctx.fillStyle = `rgb(${Math.round((nx * 0.5 + 0.5) * 255)}, 128, ${Math.round((nz * 0.5 + 0.5) * 255)})`;
+      ctx.fillRect(x, 0, 1, height);
+    }
+  });
+}
+
+function seededRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** 一張圖代表 240 cm 見方的木地板，木板沿櫃長方向，上下左右可無縫重複。 */
+function woodTexture() {
+  return cachedTexture("wood", 512, 512, (ctx, width, height) => {
+    const random = seededRandom(20261126);
+    const rows = 8;
+    const rowH = height / rows;
+    for (let row = 0; row < rows; row += 1) {
+      const top = row * rowH;
+      const tone = 0.9 + random() * 0.16;
+      ctx.fillStyle = `rgb(${Math.round(200 * tone)}, ${Math.round(176 * tone)}, ${Math.round(140 * tone)})`;
+      ctx.fillRect(0, top, width, rowH);
+      for (let line = 0; line < 16; line += 1) {
+        const y = top + 4 + random() * (rowH - 8);
+        const waves = 1 + Math.floor(random() * 3);
+        const amp = 0.6 + random() * 1.6;
+        const phase = random() * Math.PI * 2;
+        ctx.strokeStyle = `rgba(92, 62, 32, ${0.06 + random() * 0.12})`;
+        ctx.lineWidth = 0.6 + random() * 1.2;
+        ctx.beginPath();
+        for (let x = 0; x <= width; x += 8) {
+          const yy = y + Math.sin((x / width) * Math.PI * 2 * waves + phase) * amp;
+          if (x === 0) ctx.moveTo(x, yy);
+          else ctx.lineTo(x, yy);
+        }
+        ctx.stroke();
+      }
+      const joint = random() * width;
+      ctx.fillStyle = "rgba(58, 38, 20, 0.45)";
+      ctx.fillRect(joint, top, 2, rowH);
+      ctx.fillStyle = "rgba(48, 32, 18, 0.55)";
+      ctx.fillRect(0, top, width, 2);
+      ctx.fillStyle = "rgba(255, 244, 220, 0.18)";
+      ctx.fillRect(0, top + 2, width, 1);
+    }
+  }, THREE.SRGBColorSpace);
+}
+
+function groundFadeTexture() {
+  return cachedTexture("ground-fade", 256, 256, (ctx, width, height) => {
+    const gradient = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, width / 2);
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(0.55, "#ffffff");
+    gradient.addColorStop(1, "#000000");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+  });
+}
+
+function shellMaterial(color, opacity, extra = {}) {
+  return new THREE.MeshStandardMaterial({
     color,
+    roughness: 0.7,
+    metalness: 0.05,
     transparent: opacity < 1,
     opacity,
     side: THREE.DoubleSide,
     depthWrite: opacity >= 0.5,
+    ...extra,
   });
 }
 
-function addShell(list, face, size, center, color, opacity) {
+function corrugatedMaterial(color, opacity, ribs, valleyAlpha) {
+  const map = tiled(corrugatedTexture(valleyAlpha), ribs, 1);
+  const normalMap = tiled(corrugatedNormal(), ribs, 1);
+  return shellMaterial(color, opacity, map ? { map, normalMap, normalScale: new THREE.Vector2(1, 1) } : {});
+}
+
+function addShell(list, face, size, center, material) {
   const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
-  const mesh = new THREE.Mesh(geometry, wallMaterial(color, opacity));
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(center.x, center.y, center.z);
   mesh.userData.face = face;
   mesh.renderOrder = face === "floor" ? 1 : 4;
+  mesh.receiveShadow = face === "floor";
   list.push(mesh);
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(geometry),
-    new THREE.LineBasicMaterial({ color: 0x143e39 })
+    new THREE.LineBasicMaterial({ color: 0x143e39, toneMapped: false })
   );
   edges.position.copy(mesh.position);
   edges.userData.role = "edge";
@@ -277,34 +512,210 @@ function addShell(list, face, size, center, color, opacity) {
 export function buildShellMeshes(bin) {
   const list = [];
   const faces = new Set(shellFaces(bin.kind));
-  const thickness = 2.6;
+  const thickness = SHELL_T;
   const l = bin.l;
   const w = bin.w;
   const h = bin.h;
-  const floorColor = 0xc8b496;
+  const fr = bin.kind === "fr";
   const wallColor = bin.kind === "ot" ? 0x8a5a2b : 0x1d4e89;
   const doorColor = 0xd0893a;
+  const valley = fr ? 1 : 0.34;
   if (faces.has("floor")) {
-    addShell(list, "floor", { x: l, y: thickness, z: w }, { x: l / 2, y: -thickness / 2, z: w / 2 }, floorColor, 0.78);
+    const map = tiled(woodTexture(), l / 240, w / 240);
+    const material = shellMaterial(map ? 0xffffff : 0xc8b496, 1, map ? { map, roughness: 0.88, side: THREE.FrontSide } : {});
+    addShell(list, "floor", { x: l, y: thickness, z: w }, { x: l / 2, y: -thickness / 2, z: w / 2 }, material);
   }
   if (faces.has("roof")) {
-    addShell(list, "roof", { x: l, y: thickness, z: w }, { x: l / 2, y: h + thickness / 2, z: w / 2 }, 0x143e39, 0.12);
+    addShell(list, "roof", { x: l, y: thickness, z: w }, { x: l / 2, y: h + thickness / 2, z: w / 2 }, shellMaterial(0x143e39, 0.12));
   }
   if (faces.has("side-high")) {
-    addShell(list, "side-high", { x: l, y: h, z: thickness }, { x: l / 2, y: h / 2, z: -thickness / 2 }, wallColor, 0.16);
+    const material = corrugatedMaterial(wallColor, 0.3, l / RIB_PITCH, valley);
+    addShell(list, "side-high", { x: l, y: h, z: thickness }, { x: l / 2, y: h / 2, z: -thickness / 2 }, material);
   }
   if (faces.has("side-low")) {
-    addShell(list, "side-low", { x: l, y: h, z: thickness }, { x: l / 2, y: h / 2, z: w + thickness / 2 }, wallColor, 0.16);
+    const material = corrugatedMaterial(wallColor, 0.3, l / RIB_PITCH, valley);
+    addShell(list, "side-low", { x: l, y: h, z: thickness }, { x: l / 2, y: h / 2, z: w + thickness / 2 }, material);
   }
   if (faces.has("end-closed")) {
-    const opacity = bin.kind === "fr" ? 0.78 : 0.22;
-    addShell(list, "end-closed", { x: thickness, y: h, z: w }, { x: -thickness / 2, y: h / 2, z: w / 2 }, wallColor, opacity);
+    const material = corrugatedMaterial(wallColor, fr ? 0.78 : 0.36, w / RIB_PITCH, valley);
+    addShell(list, "end-closed", { x: thickness, y: h, z: w }, { x: -thickness / 2, y: h / 2, z: w / 2 }, material);
   }
   if (faces.has("end-door")) {
-    const opacity = bin.kind === "fr" ? 0.88 : 0.28;
-    addShell(list, "end-door", { x: thickness, y: h, z: w }, { x: l + thickness / 2, y: h / 2, z: w / 2 }, doorColor, opacity);
+    const material = corrugatedMaterial(doorColor, fr ? 0.88 : 0.42, w / RIB_PITCH, valley);
+    addShell(list, "end-door", { x: thickness, y: h, z: w }, { x: l + thickness / 2, y: h / 2, z: w / 2 }, material);
   }
+  list.push(...buildShellDeco(bin));
   return list;
+}
+
+/** 貨櫃外框的底面高度（底樑下緣），地面放在這裡。 */
+export function shellBaseY(bin) {
+  return bin.kind === "fr" ? -SHELL_T - 26 : -SHELL_T - 10;
+}
+
+function boxGeometry(x, y, z) {
+  const geometry = new THREE.BoxGeometry(x[1] - x[0], y[1] - y[0], z[1] - z[0]);
+  geometry.translate((x[0] + x[1]) / 2, (y[0] + y[1]) / 2, (z[0] + z[1]) / 2);
+  return geometry;
+}
+
+/** 斷面四角倒角的長條鋼材，沿最長的那一軸擺放。 */
+function barGeometry(x, y, z, chamfer) {
+  const dx = x[1] - x[0];
+  const dy = y[1] - y[0];
+  const dz = z[1] - z[0];
+  const extrude = (sizeA, sizeB, length) => {
+    const a = sizeA / 2;
+    const b = sizeB / 2;
+    const c = Math.min(chamfer, a * 0.45, b * 0.45);
+    const shape = new THREE.Shape();
+    shape.moveTo(-a + c, -b);
+    shape.lineTo(a - c, -b);
+    shape.lineTo(a, -b + c);
+    shape.lineTo(a, b - c);
+    shape.lineTo(a - c, b);
+    shape.lineTo(-a + c, b);
+    shape.lineTo(-a, b - c);
+    shape.lineTo(-a, -b + c);
+    shape.closePath();
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: length, bevelEnabled: false, steps: 1, curveSegments: 1 });
+    geometry.translate(0, 0, -length / 2);
+    return geometry;
+  };
+  let geometry;
+  if (dx >= dy && dx >= dz) {
+    geometry = extrude(dz, dy, dx);
+    geometry.rotateY(Math.PI / 2);
+  } else if (dy >= dz) {
+    geometry = extrude(dx, dz, dy);
+    geometry.rotateX(-Math.PI / 2);
+  } else {
+    geometry = extrude(dx, dy, dz);
+  }
+  geometry.translate((x[0] + x[1]) / 2, (y[0] + y[1]) / 2, (z[0] + z[1]) / 2);
+  return geometry;
+}
+
+function mergeGeometries(list) {
+  const parts = list.map((geometry) => {
+    const flat = geometry.index ? geometry.toNonIndexed() : geometry;
+    if (!flat.attributes.normal) flat.computeVertexNormals();
+    return flat;
+  });
+  const count = parts.reduce((sum, part) => sum + part.attributes.position.count, 0);
+  const position = new Float32Array(count * 3);
+  const normal = new Float32Array(count * 3);
+  let offset = 0;
+  for (const part of parts) {
+    position.set(part.attributes.position.array, offset * 3);
+    normal.set(part.attributes.normal.array, offset * 3);
+    offset += part.attributes.position.count;
+  }
+  for (const geometry of new Set([...list, ...parts])) geometry.dispose();
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute("position", new THREE.BufferAttribute(position, 3));
+  merged.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
+  merged.computeBoundingBox();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+/** 角柱、上下樑、角件、門鎖桿、開頂弓形樑、平板底樑。全部在內徑之外，只當外觀。 */
+function buildShellDeco(bin) {
+  const t = SHELL_T;
+  const l = bin.l;
+  const w = bin.w;
+  const h = bin.h;
+  const fr = bin.kind === "fr";
+  const yB = shellBaseY(bin);
+  const yT = h + t + 6;
+  const xr = (end, near, far) => (end ? [l + near, l + t + far] : [-t - far, -near]);
+  const zr = (side, near, far) => (side ? [w + near, w + t + far] : [-t - far, -near]);
+  const frame = [];
+  const cast = [];
+  const steel = [];
+  const dark = [];
+
+  for (const end of [0, 1]) {
+    for (const side of [0, 1]) {
+      frame.push(barGeometry(xr(end, 0.5, 8), [yB, yT], zr(side, 0.5, 8), 2));
+      for (const y of [[yB - 1, yB + 10], [yT - 10, yT + 1]]) {
+        const x = xr(end, 0.3, 9.6);
+        const z = zr(side, 0.3, 9.6);
+        cast.push(barGeometry(x, y, z, 0.9));
+        const xo = end ? x[1] : x[0];
+        const zo = side ? z[1] : z[0];
+        const xm = (x[0] + x[1]) / 2;
+        const ym = (y[0] + y[1]) / 2;
+        const zm = (z[0] + z[1]) / 2;
+        dark.push(boxGeometry([xo - 0.4, xo + 0.4], [ym - 2.2, ym + 2.2], [zm - 3, zm + 3]));
+        dark.push(boxGeometry([xm - 3, xm + 3], [ym - 2.2, ym + 2.2], [zo - 0.4, zo + 0.4]));
+      }
+    }
+    frame.push(barGeometry(xr(end, 0.5, 6), [yB, 4], [-0.5, w + 0.5], 1.5));
+    frame.push(barGeometry(xr(end, 0.5, 6), [h - 6, yT], [-0.5, w + 0.5], 1.5));
+  }
+  for (const side of [0, 1]) {
+    frame.push(barGeometry([-0.5, l + 0.5], fr ? [yB, 0.5] : [yB, 4], zr(side, 0.5, fr ? 9 : 6), 1.5));
+    if (!fr) frame.push(barGeometry([-0.5, l + 0.5], [h - 6, yT], zr(side, 0.5, 6), 1.5));
+    if (fr) {
+      for (let x = 60; x < l - 30; x += 120) {
+        frame.push(barGeometry([x - 6, x + 6], [yB + 5, -t - 3], zr(side, 8.5, 12.5), 1));
+      }
+    }
+  }
+
+  if (!fr) {
+    const xd = l + t;
+    for (const f of [0.11, 0.37, 0.63, 0.89]) {
+      const z = w * f;
+      const rod = new THREE.CylinderGeometry(1.5, 1.5, h - 20, 10);
+      rod.translate(xd + 2.6, h / 2, z);
+      steel.push(rod);
+      for (const y of [14, h - 14]) steel.push(boxGeometry([xd, xd + 4.6], [y - 3, y + 3], [z - 3.5, z + 3.5]));
+      const hy = h * 0.42;
+      steel.push(boxGeometry([xd + 1.6, xd + 4.4], [hy - 1.6, hy + 1.6], f < 0.5 ? [z, z + 22] : [z - 22, z]));
+      const tip = f < 0.5 ? z + 20 : z - 20;
+      steel.push(boxGeometry([xd, xd + 3], [hy - 4, hy + 4], [tip - 2.5, tip + 2.5]));
+    }
+    dark.push(boxGeometry([xd, xd + 0.9], [0, h], [w / 2 - 0.7, w / 2 + 0.7]));
+    for (const z of [4, w - 4]) {
+      for (const y of [h * 0.14, h * 0.5, h * 0.86]) steel.push(boxGeometry([xd, xd + 3.6], [y - 4, y + 4], [z - 3, z + 3]));
+    }
+  }
+
+  if (bin.kind === "ot") {
+    const count = Math.max(3, Math.round(l / 140));
+    for (let i = 1; i <= count; i += 1) {
+      const x = (l * i) / (count + 1);
+      const blocked = (bin.placed || []).some((box) => box.y + box.dh > h + EPS && box.x - 8 < x && box.x + box.dl + 8 > x);
+      if (blocked) continue;
+      const curve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(x, yT - 1, -t - 3),
+        new THREE.Vector3(x, yT + 30, w / 2),
+        new THREE.Vector3(x, yT - 1, w + t + 3)
+      );
+      frame.push(new THREE.TubeGeometry(curve, 24, 1.8, 6, false));
+    }
+  }
+
+  const frameColor = new THREE.Color(bin.kind === "ot" ? 0x6b4422 : 0x183a63);
+  const castColor = frameColor.clone().lerp(new THREE.Color(0x9aa1a8), 0.35);
+  const meshes = [];
+  const add = (geometries, material) => {
+    if (!geometries.length) return;
+    const mesh = new THREE.Mesh(mergeGeometries(geometries), material);
+    mesh.userData.role = "deco";
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.raycast = () => {};
+    meshes.push(mesh);
+  };
+  add(frame, new THREE.MeshStandardMaterial({ color: frameColor, roughness: 0.55, metalness: 0.25 }));
+  add(cast, new THREE.MeshStandardMaterial({ color: castColor, roughness: 0.6, metalness: 0.3 }));
+  add(steel, new THREE.MeshStandardMaterial({ color: 0xb8bec4, roughness: 0.38, metalness: 0.45 }));
+  add(dark, new THREE.MeshStandardMaterial({ color: 0x15181c, roughness: 0.85 }));
+  return meshes;
 }
 
 export function disposeMeshes(meshes) {
@@ -314,12 +725,18 @@ export function disposeMeshes(meshes) {
     else objects.push(mesh);
     for (const obj of objects) {
       if (obj.geometry) obj.geometry.dispose();
-      if (obj.material && !obj.material.userData.shared) {
-        if (obj.material.map) obj.material.map.dispose();
-        obj.material.dispose();
-      }
+      disposeMaterial(obj.material);
     }
   }
+}
+
+function disposeMaterial(material) {
+  if (!material || material.userData.shared) return;
+  for (const key of ["map", "normalMap", "alphaMap"]) {
+    const texture = material[key];
+    if (texture && !texture.userData.shared) texture.dispose();
+  }
+  material.dispose();
 }
 
 function near(left, right) {
@@ -393,6 +810,20 @@ function auditBin(bin) {
   const door = shell.find((mesh) => mesh.userData.face === "end-door");
   const closed = shell.find((mesh) => mesh.userData.face === "end-closed");
   if (!door || !closed || !(door.position.x > closed.position.x)) issues.push(`door ${bin.code || bin.kind}`);
+  for (const mesh of shell) {
+    if (mesh.userData.role !== "deco") continue;
+    if (mesh.userData.face || mesh.userData.pieceId != null) issues.push(`deco-tag ${bin.code || bin.kind}`);
+    const position = mesh.geometry.attributes.position;
+    for (let i = 0; i < position.count; i += 1) {
+      const x = position.getX(i) + mesh.position.x;
+      const y = position.getY(i) + mesh.position.y;
+      const z = position.getZ(i) + mesh.position.z;
+      if (x > 0.01 && x < bin.l - 0.01 && y > 0.01 && y < bin.h - 0.01 && z > 0.01 && z < bin.w - 0.01) {
+        issues.push(`deco-inside ${bin.code || bin.kind}`);
+        break;
+      }
+    }
+  }
   disposeMeshes(shell);
 
   const boxes = [];
@@ -513,10 +944,15 @@ export function createSceneView(host, options) {
   let enabled = true;
   let active = true;
   let scheduled = false;
+  let needsRender = false;
   let raf = 0;
   let currentView = "reset";
   let press = null;
+  let transition = null;
+  let drops = [];
   const spriteMaterials = new Map();
+  const motionQuery = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  const reducedMotion = () => Boolean(motionQuery && motionQuery.matches);
 
   const initial = containers.find((item) => item.placed.some((box) => String(box.item.id) === highlightId));
   if (initial) bin = initial;
@@ -561,8 +997,13 @@ export function createSceneView(host, options) {
     return { dispose() { host.replaceChildren(); }, setActive() {}, setHighlight() {} };
   }
 
-  renderer.setClearColor(0xf6f1e8, 1);
+  renderer.setClearColor(BACKGROUND, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = TONE_EXPOSURE;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.autoUpdate = false;
   stageEl.append(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -576,16 +1017,24 @@ export function createSceneView(host, options) {
   controls.maxPolarAngle = Math.PI * 0.96;
   controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
   controls.addEventListener("start", () => {
+    transition = null;
     currentView = "";
     markViews();
   });
+  controls.addEventListener("change", () => invalidate());
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.84));
-  const key = new THREE.DirectionalLight(0xffffff, 1.08);
-  key.position.set(900, 1600, 1100);
-  scene.add(key);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.38);
-  fill.position.set(-700, 600, -500);
+  scene.add(new THREE.HemisphereLight(0xfffaf0, 0xb8a88c, HEMI_INTENSITY));
+  scene.add(new THREE.AmbientLight(0xffffff, AMBIENT_INTENSITY));
+  const key = new THREE.DirectionalLight(0xffffff, KEY_INTENSITY);
+  // packer 從封閉端、上緣往外排，影子要落向櫃門與下緣那側的空地板才看得到。
+  const keyDir = new THREE.Vector3(-520, 1600, 760).normalize();
+  key.castShadow = true;
+  key.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = 1.2;
+  scene.add(key, key.target);
+  const fill = new THREE.DirectionalLight(0xffffff, FILL_INTENSITY);
+  fill.position.set(1000, 520, 260);
   scene.add(fill);
 
   const shellGroup = new THREE.Group();
@@ -612,10 +1061,10 @@ export function createSceneView(host, options) {
   }
   const viewGroup = group("視角");
   const viewButtons = {
-    front: button("secondary", "正面", () => setView("front")),
-    side: button("secondary", "側面", () => setView("side")),
-    top: button("secondary", "俯視", () => setView("top")),
-    reset: button("secondary", "重設視角", () => setView("reset")),
+    front: button("secondary", "正面", () => setView("front", true)),
+    side: button("secondary", "側面", () => setView("side", true)),
+    top: button("secondary", "俯視", () => setView("top", true)),
+    reset: button("secondary", "重設視角", () => setView("reset", true)),
   };
   viewButtons.front.title = "從櫃門這端看";
   viewButtons.side.title = "從側面看，封閉端在左";
@@ -636,10 +1085,19 @@ export function createSceneView(host, options) {
   countLabel.className = "scene3d-count";
   playGroup.append(playButton, ...speedButtons, jumpButton, countLabel);
 
+  const qualityGroup = group("畫質");
+  const qualityButtons = {
+    high: button("secondary", "高", () => setQuality("high")),
+    saver: button("secondary", "省電", () => setQuality("saver")),
+  };
+  qualityButtons.high.title = "柔和陰影";
+  qualityButtons.saver.title = "關閉陰影，比較省電";
+  qualityGroup.append(qualityButtons.high, qualityButtons.saver);
+
   const exportButton = button("secondary", "匯出 PNG", exportPng);
   exportButton.title = "下載目前這個櫃子的 3D 畫面";
   if (containers.length > 1) toolbar.append(binGroup);
-  toolbar.append(viewGroup, playGroup, exportButton);
+  toolbar.append(viewGroup, playGroup, qualityGroup, exportButton);
 
   function textSprite(text, tone = null) {
     const key = tone ? `${tone.fill}|${tone.ink}|${text}` : text;
@@ -662,7 +1120,7 @@ export function createSceneView(host, options) {
       ctx.fillText(text, 256, 66);
       const texture = new THREE.CanvasTexture(canvas);
       texture.colorSpace = THREE.SRGBColorSpace;
-      material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+      material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, toneMapped: false });
       material.userData.shared = true;
       spriteMaterials.set(key, material);
     }
@@ -674,18 +1132,7 @@ export function createSceneView(host, options) {
   function clearGroup(groupNode) {
     for (const child of [...groupNode.children]) {
       groupNode.remove(child);
-      if (child.traverse) {
-        child.traverse((obj) => {
-          if (obj === child) return;
-          if (obj.geometry) obj.geometry.dispose();
-          if (obj.material && !obj.material.userData.shared) obj.material.dispose();
-        });
-      }
-      if (child.geometry) child.geometry.dispose();
-      if (child.material && !child.material.userData.shared) {
-        if (child.material.map) child.material.map.dispose();
-        child.material.dispose();
-      }
+      disposeMeshes([child]);
     }
   }
 
@@ -724,8 +1171,7 @@ export function createSceneView(host, options) {
     }
   }
 
-  function setView(name) {
-    currentView = name === "front" || name === "side" || name === "top" ? name : "reset";
+  function viewPose(name) {
     const bounds = contentBounds();
     const center = new THREE.Vector3(
       (bounds.minX + bounds.maxX) / 2,
@@ -744,32 +1190,201 @@ export function createSceneView(host, options) {
       return Math.max(distH, distW) * 1.38;
     };
     const outside = 48;
-    controls.target.copy(center);
-    camera.up.set(0, 1, 0);
-    if (currentView === "front") {
-      camera.position.set(bounds.maxX + fit(sizeZ, sizeY) + outside, center.y + sizeY * 0.04, center.z);
-    } else if (currentView === "side") {
-      camera.position.set(center.x, center.y + sizeY * 0.04, bounds.maxZ + fit(sizeX, sizeY) + outside);
-    } else if (currentView === "top") {
+    const position = new THREE.Vector3();
+    if (name === "front") {
+      position.set(bounds.maxX + fit(sizeZ, sizeY) + outside, center.y + sizeY * 0.04, center.z);
+    } else if (name === "side") {
+      position.set(center.x, center.y + sizeY * 0.04, bounds.maxZ + fit(sizeX, sizeY) + outside);
+    } else if (name === "top") {
       const distance = fit(sizeX, sizeZ);
-      camera.position.set(center.x, bounds.maxY + distance + outside, center.z + distance * 0.015);
+      position.set(center.x, bounds.maxY + distance + outside, center.z + distance * 0.015);
     } else {
-      const distance = fit(Math.max(sizeX, sizeZ), Math.max(sizeY, sizeZ * 0.85));
-      const offset = new THREE.Vector3(0.78, 0.5, 0.9).normalize().multiplyScalar(distance);
-      camera.position.copy(center).add(offset);
+      const dir = new THREE.Vector3(0.78, 0.5, 0.9).normalize();
+      position.copy(center).addScaledVector(dir, obliqueDistance(dir, bounds, center, aspectRatio));
     }
+    return { target: center, position };
+  }
+
+  /** 斜向視角：把八個角投到畫面上，左右上下都放得下。 */
+  function obliqueDistance(dir, bounds, center, aspectRatio) {
+    const forward = dir.clone().negate();
+    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+    let halfW = 0;
+    let halfH = 0;
+    let depth = 0;
+    for (const x of [bounds.minX, bounds.maxX]) {
+      for (const y of [bounds.minY, bounds.maxY]) {
+        for (const z of [bounds.minZ, bounds.maxZ]) {
+          const v = new THREE.Vector3(x, y, z).sub(center);
+          halfW = Math.max(halfW, Math.abs(v.dot(right)));
+          halfH = Math.max(halfH, Math.abs(v.dot(up)));
+          depth = Math.max(depth, v.dot(dir));
+        }
+      }
+    }
+    const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    const tanH = tanV * aspectRatio;
+    return (Math.max(halfW / tanH, halfH / tanV) + depth) * 1.12;
+  }
+
+  function applyPose(pose) {
+    controls.target.copy(pose.target);
+    camera.position.copy(pose.position);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(pose.target);
+    controls.update();
+  }
+
+  function setView(name, animate = false) {
+    currentView = name === "front" || name === "side" || name === "top" ? name : "reset";
+    const pose = viewPose(currentView);
     camera.near = 0.5;
     camera.far = 100000;
-    camera.lookAt(center);
     camera.updateProjectionMatrix();
-    controls.update();
+    transition = null;
+    if (animate && !reducedMotion()) {
+      const from = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+      const to = new THREE.Spherical().setFromVector3(pose.position.clone().sub(pose.target));
+      const turn = to.theta - from.theta;
+      const dTheta = turn - Math.PI * 2 * Math.round(turn / (Math.PI * 2));
+      transition = { fromTarget: controls.target.clone(), from, to, dTheta, pose, start: performance.now() };
+    } else {
+      applyPose(pose);
+    }
     markViews();
-    renderer.render(scene, camera);
+    invalidate();
+  }
+
+  function stepTransition(now) {
+    const t = Math.min(1, Math.max(0, (now - transition.start) / VIEW_MS));
+    if (t >= 1) {
+      const pose = transition.pose;
+      transition = null;
+      applyPose(pose);
+      needsRender = true;
+      return false;
+    }
+    const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const { from, to } = transition;
+    const target = transition.fromTarget.clone().lerp(transition.pose.target, e);
+    const spherical = new THREE.Spherical(
+      from.radius + (to.radius - from.radius) * e,
+      from.phi + (to.phi - from.phi) * e,
+      from.theta + transition.dTheta * e
+    );
+    controls.target.copy(target);
+    camera.position.copy(target).add(new THREE.Vector3().setFromSpherical(spherical));
+    camera.lookAt(target);
+    return true;
+  }
+
+  function decoOnly(obj) {
+    obj.userData.role = "deco";
+    obj.raycast = () => {};
+    return obj;
+  }
+
+  function groundMeshes() {
+    const y = shellBaseY(bin);
+    const cx = bin.l / 2;
+    const cz = bin.w / 2;
+    const radius = Math.max(bin.l, bin.w) / 2 + 360;
+    const size = radius * 2.5;
+    const plane = new THREE.PlaneGeometry(size, size);
+    plane.rotateX(-Math.PI / 2);
+    const fade = groundFadeTexture();
+    const ground = new THREE.Mesh(plane, new THREE.MeshStandardMaterial({
+      color: GROUND_COLOR,
+      roughness: 1,
+      metalness: 0,
+      transparent: true,
+      alphaMap: fade,
+      depthWrite: false,
+    }));
+    ground.position.set(cx, y - 0.3, cz);
+    ground.receiveShadow = true;
+    ground.renderOrder = -2;
+
+    const step = 100;
+    const seg = 50;
+    const tone = new THREE.Color(GRID_COLOR);
+    const positions = [];
+    const colors = [];
+    const alphaAt = (x, z) => {
+      const d = Math.hypot(x - cx, z - cz) / radius;
+      return d >= 1 ? 0 : 0.5 * Math.pow(1 - d, 1.3);
+    };
+    const push = (x0, z0, x1, z1) => {
+      positions.push(x0, y - 0.15, z0, x1, y - 0.15, z1);
+      colors.push(tone.r, tone.g, tone.b, alphaAt(x0, z0), tone.r, tone.g, tone.b, alphaAt(x1, z1));
+    };
+    for (let gx = Math.ceil((cx - radius) / step) * step; gx <= cx + radius; gx += step) {
+      for (let z = cz - radius; z < cz + radius; z += seg) push(gx, z, gx, z + seg);
+    }
+    for (let gz = Math.ceil((cz - radius) / step) * step; gz <= cz + radius; gz += step) {
+      for (let x = cx - radius; x < cx + radius; x += seg) push(x, gz, x + seg, gz);
+    }
+    const gridGeometry = new THREE.BufferGeometry();
+    gridGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    gridGeometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 4));
+    const grid = new THREE.LineSegments(gridGeometry, new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+    }));
+    grid.renderOrder = -1;
+    return [decoOnly(ground), decoOnly(grid)];
+  }
+
+  /** 內徑的長、寬、高標線，放在櫃子與超出貨物的外側。 */
+  function dimensionMeshes() {
+    const bounds = contentBounds();
+    const t = SHELL_T;
+    const y = shellBaseY(bin) + 0.5;
+    const zL = Math.max(bin.w + t + 8, bounds.maxZ) + 45;
+    const xW = Math.max(bin.l + t + 8, bounds.maxX) + 45;
+    const xH = Math.min(-t - 8, bounds.minX) - 26;
+    const zH = Math.max(bin.w + t + 8, bounds.maxZ) + 26;
+    const tick = 7;
+    const p = [];
+    const seg = (a, b) => p.push(...a, ...b);
+    seg([0, y, zL], [bin.l, y, zL]);
+    seg([0, y, bin.w + t + 10], [0, y, zL + tick]);
+    seg([bin.l, y, bin.w + t + 10], [bin.l, y, zL + tick]);
+    seg([xW, y, 0], [xW, y, bin.w]);
+    seg([bin.l + t + 10, y, 0], [xW + tick, y, 0]);
+    seg([bin.l + t + 10, y, bin.w], [xW + tick, y, bin.w]);
+    seg([xH, 0, zH], [xH, bin.h, zH]);
+    seg([xH - tick, 0, zH - tick], [xH + tick, 0, zH + tick]);
+    seg([xH - tick, bin.h, zH - tick], [xH + tick, bin.h, zH + tick]);
+    for (const [cx, cz] of [[0, zL], [bin.l, zL], [xW, 0], [xW, bin.w]]) {
+      seg([cx - tick * 0.7, y, cz - tick * 0.7], [cx + tick * 0.7, y, cz + tick * 0.7]);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
+    const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0x5c4a30, toneMapped: false }));
+    lines.renderOrder = 7;
+    const label = (text, x, ly, z) => {
+      const sprite = textSprite(text);
+      sprite.scale.set(118, 29.5, 1);
+      sprite.position.set(x, ly, z);
+      return decoOnly(sprite);
+    };
+    return [
+      decoOnly(lines),
+      label(`內長 ${formatDim(bin.l)} cm`, bin.l / 2, y + 16, zL),
+      label(`內寬 ${formatDim(bin.w)} cm`, xW, y + 16, bin.w / 2),
+      label(`內高 ${formatDim(bin.h)} cm`, xH, bin.h / 2, zH),
+    ];
   }
 
   function fillShell() {
     clearGroup(shellGroup);
     for (const mesh of buildShellMeshes(bin)) shellGroup.add(mesh);
+    for (const mesh of groundMeshes()) shellGroup.add(mesh);
+    for (const mesh of dimensionMeshes()) shellGroup.add(mesh);
     const names = bin.kind === "fr" ? ["端牆", "端牆"] : ["封閉端", "櫃門"];
     const closed = textSprite(names[0]);
     closed.scale.set(72, 26, 1);
@@ -787,14 +1402,27 @@ export function createSceneView(host, options) {
     const warn = cog.longWarn || cog.latWarn;
     const color = warn ? 0xc4382b : 0x0f5c54;
     const span = Math.max(36, Math.min(bin.l, bin.w) * 0.28);
-    const markMaterial = () => new THREE.MeshBasicMaterial({ color, depthTest: false });
+    const markMaterial = () => new THREE.MeshBasicMaterial({ color, depthTest: false, toneMapped: false });
     const armX = new THREE.Mesh(new THREE.BoxGeometry(span, span * 0.08, span * 0.08), markMaterial());
     const armZ = new THREE.Mesh(new THREE.BoxGeometry(span * 0.08, span * 0.08, span), markMaterial());
     const post = new THREE.Mesh(new THREE.BoxGeometry(span * 0.07, span * 0.55, span * 0.07), markMaterial());
     armX.position.set(cog.x, span * 0.08, cog.z);
     armZ.position.set(cog.x, span * 0.08, cog.z);
     post.position.set(cog.x, span * 0.32, cog.z);
-    for (const mesh of [armX, armZ, post]) {
+    const ringGeometry = new THREE.RingGeometry(span * 0.62, span * 0.74, 48);
+    ringGeometry.rotateX(-Math.PI / 2);
+    const ring = new THREE.Mesh(ringGeometry, new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.8,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    }));
+    ring.position.set(cog.x, 0.4, cog.z);
+    ring.raycast = () => {};
+    for (const mesh of [ring, armX, armZ, post]) {
       mesh.renderOrder = 12;
       mesh.userData.role = "cog";
       cogGroup.add(mesh);
@@ -812,6 +1440,11 @@ export function createSceneView(host, options) {
       for (const mesh of buildCargoMeshes(box, bin, colorFor(box))) {
         mesh.userData.order = index;
         cargoGroup.add(mesh);
+      }
+      const contact = contactShadowMesh(box, bin);
+      if (contact) {
+        contact.userData.order = index;
+        cargoGroup.add(contact);
       }
       const tone = colorEntry(box);
       const number = textSprite(String(box.item.id), tone);
@@ -863,10 +1496,33 @@ export function createSceneView(host, options) {
     ctx.fillText(text, 512, 82);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, toneMapped: false });
     const sprite = new THREE.Sprite(material);
     sprite.renderOrder = 9;
     return sprite;
+  }
+
+  function fitShadow() {
+    const bounds = contentBounds();
+    const center = new THREE.Vector3(
+      (bounds.minX + bounds.maxX) / 2,
+      (bounds.minY + bounds.maxY) / 2,
+      (bounds.minZ + bounds.maxZ) / 2
+    );
+    const radius = 0.5 * Math.hypot(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, bounds.maxZ - bounds.minZ) + 40;
+    key.target.position.copy(center);
+    key.position.copy(center).addScaledVector(keyDir, radius * 2);
+    const cam = key.shadow.camera;
+    cam.left = -radius;
+    cam.right = radius;
+    cam.top = radius;
+    cam.bottom = -radius;
+    cam.near = radius * 0.5;
+    cam.far = radius * 3.5;
+    cam.updateProjectionMatrix();
+    key.target.updateMatrixWorld();
+    key.updateMatrixWorld();
+    renderer.shadowMap.needsUpdate = true;
   }
 
   function applyShown() {
@@ -874,6 +1530,7 @@ export function createSceneView(host, options) {
       if (obj === cargoGroup || obj.userData.order == null) return;
       obj.visible = obj.userData.order < shown;
     });
+    renderer.shadowMap.needsUpdate = true;
     applyHighlight();
     updateChrome();
   }
@@ -885,6 +1542,57 @@ export function createSceneView(host, options) {
       obj.material.emissive.set(on ? 0xe4b15a : 0x000000);
       obj.material.emissiveIntensity = on ? 0.72 : 0;
     });
+    invalidate();
+  }
+
+  /** 新放入的貨物由上方落下；結束、跳過或重建時一律回到 packer 給的位置。 */
+  function startDrop(order) {
+    if (reducedMotion()) return;
+    const duration = Math.min(DROP_MS, playIntervalMs(speed) * 0.7);
+    const moving = [];
+    const hidden = [];
+    for (const obj of cargoGroup.children) {
+      if (obj.userData.order !== order) continue;
+      if (obj.userData.role === "deco") {
+        obj.visible = false;
+        hidden.push(obj);
+      } else {
+        obj.position.y = obj.userData.restY + DROP_HEIGHT;
+        moving.push(obj);
+      }
+    }
+    if (!moving.length) return;
+    drops.push({ moving, hidden, start: performance.now(), duration });
+    invalidate();
+  }
+
+  function finishDrop(drop) {
+    for (const obj of drop.moving) obj.position.y = obj.userData.restY;
+    for (const obj of drop.hidden) obj.visible = obj.userData.order < shown;
+  }
+
+  function settleDrops() {
+    if (!drops.length) return;
+    drops.forEach(finishDrop);
+    drops = [];
+    renderer.shadowMap.needsUpdate = true;
+    invalidate();
+  }
+
+  function stepDrops(now) {
+    drops = drops.filter((drop) => {
+      const t = Math.min(1, Math.max(0, (now - drop.start) / drop.duration));
+      if (t >= 1) {
+        finishDrop(drop);
+        return false;
+      }
+      const lift = DROP_HEIGHT * Math.pow(1 - t, 2);
+      for (const obj of drop.moving) obj.position.y = obj.userData.restY + lift;
+      return true;
+    });
+    renderer.shadowMap.needsUpdate = true;
+    needsRender = true;
+    return drops.length > 0;
   }
 
   function findBox(id) {
@@ -957,6 +1665,7 @@ export function createSceneView(host, options) {
     }
     shown += 1;
     applyShown();
+    startDrop(shown - 1);
     if (shown >= bin.placed.length) pause();
   }
 
@@ -967,12 +1676,14 @@ export function createSceneView(host, options) {
     }
     if (bin.placed.length === 0) return;
     if (shown >= bin.placed.length) {
+      settleDrops();
       shown = 0;
       applyShown();
     }
     if (shown === 0) {
       shown = 1;
       applyShown();
+      startDrop(0);
     }
     if (shown >= bin.placed.length) return;
     playing = true;
@@ -991,16 +1702,21 @@ export function createSceneView(host, options) {
 
   function showAll() {
     pause();
+    settleDrops();
     shown = bin.placed.length;
     applyShown();
   }
 
   function rebuild() {
     pause();
+    drops = [];
+    transition = null;
     shown = bin.placed.length;
     fillShell();
     fillCargo();
+    for (const obj of cargoGroup.children) obj.userData.restY = obj.position.y;
     fillCog();
+    fitShadow();
     applyShown();
     resize();
     setView("reset");
@@ -1014,25 +1730,66 @@ export function createSceneView(host, options) {
     renderer.setSize(width, height, false);
     camera.aspect = width / Math.max(1, height);
     camera.updateProjectionMatrix();
+    invalidate();
   }
 
-  function loop() {
+  function markQuality() {
+    for (const [name, node] of Object.entries(qualityButtons)) {
+      const on = name === qualityMode;
+      node.classList.toggle("is-on", on);
+      node.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  function applyQuality() {
+    const high = qualityMode === "high";
+    if (renderer.shadowMap.enabled !== high) {
+      renderer.shadowMap.enabled = high;
+      scene.traverse((obj) => {
+        if (obj.material) obj.material.needsUpdate = true;
+      });
+    }
+    key.castShadow = high;
+    renderer.shadowMap.needsUpdate = true;
+    markQuality();
+    invalidate();
+  }
+
+  function setQuality(mode) {
+    qualityMode = mode === "saver" ? "saver" : "high";
+    applyQuality();
+  }
+
+  /** 只有畫面內容、相機或尺寸改變時才重畫；轉場與落下動畫進行中才連續重畫。 */
+  function invalidate() {
+    needsRender = true;
+    schedule();
+  }
+
+  function schedule() {
     if (scheduled || !active) return;
     scheduled = true;
-    raf = requestAnimationFrame(() => {
-      scheduled = false;
-      if (!active) return;
-      controls.update();
+    raf = requestAnimationFrame(frame);
+  }
+
+  function frame(now) {
+    scheduled = false;
+    if (!active) return;
+    let animating = false;
+    if (transition && stepTransition(now)) animating = true;
+    if (drops.length && stepDrops(now)) animating = true;
+    if (needsRender || animating) {
+      needsRender = false;
       renderer.render(scene, camera);
-      loop();
-    });
+    }
+    if (animating) schedule();
   }
 
   function syncLoop() {
     active = enabled && !document.hidden;
     if (active) {
       resize();
-      loop();
+      invalidate();
     }
   }
 
@@ -1101,6 +1858,12 @@ export function createSceneView(host, options) {
   }
 
   function exportPng() {
+    settleDrops();
+    if (transition) {
+      const pose = transition.pose;
+      transition = null;
+      applyPose(pose);
+    }
     renderer.render(scene, camera);
     const text = sceneCaption(bin, visibleBoxes(bin, shown));
     const canvas = composePngCanvas(renderer.domElement, text);
@@ -1120,6 +1883,7 @@ export function createSceneView(host, options) {
   const observer = new ResizeObserver(() => resize());
   observer.observe(stageEl);
 
+  applyQuality();
   rebuild();
   requestAnimationFrame(() => {
     resize();
@@ -1132,6 +1896,8 @@ export function createSceneView(host, options) {
       enabled = false;
       active = false;
       pause();
+      drops = [];
+      transition = null;
       cancelAnimationFrame(raf);
       observer.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);

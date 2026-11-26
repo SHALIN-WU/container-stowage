@@ -113,7 +113,7 @@ body[data-step="1"] .hero-bg {
   height: 100%;
   object-fit: cover;
   object-position: right center;
-  filter: brightness(1.04) contrast(1.03) saturate(1.05);
+  filter: brightness(1.6) contrast(1.05) saturate(1.1);
   transform: scale(0.86);
   transform-origin: right center;
   animation: hero-bg-drift 22s ease-in-out infinite alternate;
@@ -129,15 +129,15 @@ body[data-step="1"] .hero-backdrop::before {
     linear-gradient(
       90deg,
       #02142c 0%,
-      rgba(2, 20, 44, 0) 14%,
-      rgba(2, 20, 44, 0) 86%,
+      rgba(2, 20, 44, 0) 8%,
+      rgba(2, 20, 44, 0) 92%,
       #02142c 100%
     ),
     linear-gradient(
       180deg,
       #02142c 0%,
-      rgba(2, 20, 44, 0) 14%,
-      rgba(2, 20, 44, 0) 86%,
+      rgba(2, 20, 44, 0) 8%,
+      rgba(2, 20, 44, 0) 92%,
       #02142c 100%
     );
 }
@@ -150,13 +150,13 @@ body[data-step="1"] .hero-backdrop::after {
   background:
     linear-gradient(
       105deg,
-      rgba(2, 20, 44, 0.66) 0%,
-      rgba(2, 20, 44, 0.45) 30%,
-      rgba(2, 20, 44, 0.12) 52%,
-      rgba(2, 20, 44, 0.04) 76%,
-      rgba(2, 20, 44, 0.14) 100%
+      rgba(2, 20, 44, 0.42) 0%,
+      rgba(2, 20, 44, 0.26) 30%,
+      rgba(2, 20, 44, 0.04) 52%,
+      rgba(2, 20, 44, 0) 76%,
+      rgba(2, 20, 44, 0.04) 100%
     ),
-    linear-gradient(180deg, rgba(2, 20, 44, 0.05) 0%, rgba(2, 20, 44, 0.42) 100%);
+    linear-gradient(180deg, rgba(2, 20, 44, 0) 0%, rgba(2, 20, 44, 0.2) 100%);
 }
 
 body[data-step="1"] .mast-inner {
@@ -1148,7 +1148,7 @@ button.view-tab.is-on:hover {
   border: 1px solid var(--line);
   border-radius: 12px;
   overflow: hidden;
-  background: #f6f1e8;
+  background: #e4dccd;
   touch-action: none;
 }
 
@@ -1391,16 +1391,16 @@ button.piece-name.is-open .name-full { display: inline; }
     background:
       linear-gradient(
         90deg,
-        rgba(2, 20, 44, 0.94) 0%,
-        rgba(2, 20, 44, 0.84) 48%,
-        rgba(2, 20, 44, 0.58) 74%,
-        rgba(2, 20, 44, 0.3) 100%
+        rgba(2, 20, 44, 0.78) 0%,
+        rgba(2, 20, 44, 0.62) 48%,
+        rgba(2, 20, 44, 0.36) 74%,
+        rgba(2, 20, 44, 0.16) 100%
       ),
       linear-gradient(
         180deg,
-        rgba(2, 20, 44, 0.18) 0%,
-        rgba(2, 20, 44, 0.1) 64%,
-        rgba(2, 20, 44, 0.46) 100%
+        rgba(2, 20, 44, 0.08) 0%,
+        rgba(2, 20, 44, 0.04) 64%,
+        rgba(2, 20, 44, 0.3) 100%
       );
   }
   .steps {
