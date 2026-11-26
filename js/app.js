@@ -39,6 +39,8 @@ const state = {
 };
 
 let sceneView = null;
+let deckFitObserver = null;
+const DECK_LABEL_MIN_PX = 11;
 
 function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
@@ -117,7 +119,13 @@ function render() {
   if (state.step === 2) stage.append(renderReview());
   if (state.step === 3) stage.append(renderPlans());
   if (state.step === 4) stage.append(renderDiagram());
-  if (state.step === 4) syncDiagramView();
+  if (state.step === 4) {
+    syncDiagramView();
+    watchDeckFit();
+  } else if (deckFitObserver) {
+    deckFitObserver.disconnect();
+    deckFitObserver = null;
+  }
 }
 
 function uploadIcon() {
@@ -1040,10 +1048,10 @@ function renderContainerSheet(bin, colors) {
   }
   const decks = bin.layers.map((layer, index) => renderDeck(bin, layer, index, colors, bin.placed));
   const scrollText = bin.kind === "fr"
-    ? "俯視圖比畫面寬時可左右滑動。上下兩邊是沒有側牆的兩側。"
+    ? "整櫃已縮放在畫面內。上下兩邊是沒有側牆的兩側。格子太小時只留編號，滑鼠移上去可看尺寸、重量和超出。"
     : bin.kind === "ot"
-      ? "俯視圖比畫面寬時可左右滑動。這是開頂櫃，從封閉端看到櫃門。"
-      : "俯視圖比畫面寬時，可左右滑動，從封閉端看到櫃門。";
+      ? "整櫃已縮放在畫面內。這是開頂櫃，從封閉端看到櫃門。格子太小時只留編號，滑鼠移上去可看完整資訊。"
+      : "整櫃已縮放在畫面內，從封閉端看到櫃門。格子太小時只留編號，滑鼠移上去可看尺寸、重量和超出。";
   return el("section", { class: sheetClass }, [
     head,
     el("p", { class: "scroll-hint", text: scrollText }),
@@ -1065,10 +1073,91 @@ function renderDeck(bin, layer, index, colors, placed) {
     index === 0
       ? `第 1 層 · ${layer.length} 件 · 貼在櫃底`
       : `第 ${index + 1} 層 · ${layer.length} 件 · 疊在下面的貨上，淡色虛線是下一層`;
+  const scroll = el("div", { class: "view-scroll" }, [svg]);
+  bindDeckHover(scroll);
   return el("figure", { class: index === 0 ? "deck" : "deck is-stacked" }, [
     el("figcaption", { text: caption }),
-    el("div", { class: "view-scroll" }, [svg]),
+    scroll,
   ]);
+}
+
+function bindDeckHover(scroll) {
+  const tip = el("div", { class: "deck-tip", attrs: { role: "tooltip" } });
+  tip.hidden = true;
+  scroll.append(tip);
+  const show = (event) => {
+    const group = event.target.closest ? event.target.closest(".cargo") : null;
+    if (!group || !scroll.contains(group) || !cargoNeedsTip(group)) {
+      tip.hidden = true;
+      return;
+    }
+    const lines = (group.getAttribute("data-tip") || "").split("\n").filter(Boolean);
+    tip.replaceChildren(...lines.map((line) => el("p", { text: line })));
+    tip.hidden = false;
+    placeDeckTip(tip, scroll, event);
+  };
+  scroll.addEventListener("pointerover", show);
+  scroll.addEventListener("pointermove", show);
+  scroll.addEventListener("pointerleave", () => {
+    tip.hidden = true;
+  });
+}
+
+function cargoNeedsTip(group) {
+  return group.classList.contains("is-compact")
+    || group.classList.contains("is-id-only")
+    || group.classList.contains("is-oog-hidden");
+}
+
+function placeDeckTip(tip, scroll, event) {
+  const host = scroll.getBoundingClientRect();
+  let left = event.clientX - host.left + 12;
+  let top = event.clientY - host.top + 14;
+  const tipBox = tip.getBoundingClientRect();
+  if (left + tipBox.width > host.width - 8) left = Math.max(8, event.clientX - host.left - tipBox.width - 12);
+  if (top + tipBox.height > host.height - 8) top = Math.max(8, event.clientY - host.top - tipBox.height - 12);
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+function fitDeckLabels(root) {
+  if (!root) return;
+  root.querySelectorAll(".deck svg").forEach((svg) => {
+    const box = svg.viewBox.baseVal;
+    const rendered = svg.getBoundingClientRect().width;
+    if (!(box.width > 0) || rendered < 2) return;
+    const scale = rendered / box.width;
+    const hideOog = 11 * scale < DECK_LABEL_MIN_PX;
+    svg.classList.toggle("hide-oog", hideOog);
+    svg.querySelectorAll(".cargo").forEach((group) => {
+      const font = parseFloat(group.getAttribute("data-label-size")) || 0;
+      const compact = font > 0 && font * scale < DECK_LABEL_MIN_PX;
+      group.classList.toggle("is-compact", compact);
+      group.classList.toggle("is-oog-hidden", hideOog && Boolean(group.querySelector(".oog-label")));
+      const alt = group.querySelector(".cargo-id-alt");
+      if (alt) {
+        if (!alt.hasAttribute("data-base-size")) alt.setAttribute("data-base-size", alt.getAttribute("font-size"));
+        const base = parseFloat(alt.getAttribute("data-base-size")) || 0;
+        const maxFit = parseFloat(group.getAttribute("data-id-max")) || base;
+        const target = compact ? DECK_LABEL_MIN_PX / scale : base;
+        alt.setAttribute("font-size", String(Math.round(Math.min(Math.max(base, target), maxFit) * 10) / 10));
+      }
+    });
+  });
+}
+
+function watchDeckFit() {
+  if (deckFitObserver) {
+    deckFitObserver.disconnect();
+    deckFitObserver = null;
+  }
+  const view = stage.querySelector(".view-2d");
+  if (!view) return;
+  const run = () => fitDeckLabels(view);
+  requestAnimationFrame(run);
+  if (typeof ResizeObserver !== "function") return;
+  deckFitObserver = new ResizeObserver(run);
+  deckFitObserver.observe(view);
 }
 
 function footprintsTouch(top, below) {
@@ -1279,7 +1368,17 @@ function renderCargo(box, bin, colors, hatchId) {
   const longest = Math.max(String(box.item.id).length, dim.length, weight.length);
   const size = Math.min((box.dl * 0.88) / (longest * 0.62), (box.dw * 0.78) / 3.5, 16);
   if (box.y > 0.05) group.append(stackMark(box));
+  const tipLines = [
+    `編號 ${box.item.id}　${box.item.name}`,
+    `${dim} cm`,
+    weight,
+  ];
+  if (over.length) tipLines.push(over.join("、"));
+  group.setAttribute("data-tip", tipLines.join("\n"));
+  const centerX = box.x + box.dl / 2;
+  const centerY = box.z + box.dw / 2;
   if (size >= 5.2) {
+    group.setAttribute("data-label-size", String(roundFont(size)));
     const clipId = `piece-${box.item.id}`;
     const clip = svgEl("clipPath", { id: clipId });
     clip.append(
@@ -1291,9 +1390,7 @@ function renderCargo(box, bin, colors, hatchId) {
       })
     );
     group.append(clip);
-    const label = svgEl("g", { "clip-path": `url(#${clipId})` });
-    const centerX = box.x + box.dl / 2;
-    const centerY = box.z + box.dw / 2;
+    const label = svgEl("g", { class: "cargo-full", "clip-path": `url(#${clipId})` });
     const gap = size * 1.22;
     label.append(
       cargoText(String(box.item.id), centerX, centerY - gap, size * 1.12, color.ink, "700"),
@@ -1301,8 +1398,27 @@ function renderCargo(box, bin, colors, hatchId) {
       cargoText(weight, centerX, centerY + gap, size, color.ink, "600")
     );
     group.append(label);
+    group.setAttribute("data-id-max", String(roundFont(Math.min(box.dl * 0.72, box.dw * 0.7))));
+    group.append(cargoText(
+      String(box.item.id),
+      centerX,
+      centerY,
+      Math.min(box.dl * 0.46, box.dw * 0.46, 14),
+      color.ink,
+      "700",
+      "cargo-id-alt"
+    ));
   } else {
-    group.append(cargoText(String(box.item.id), box.x + box.dl / 2, box.z + box.dw / 2, Math.min(box.dl * 0.46, box.dw * 0.46, 14), color.ink, "700"));
+    group.classList.add("is-id-only");
+    group.append(cargoText(
+      String(box.item.id),
+      centerX,
+      centerY,
+      Math.min(box.dl * 0.46, box.dw * 0.46, 14),
+      color.ink,
+      "700",
+      "cargo-id"
+    ));
   }
   if (over.length > 0) {
     const note = svgEl("text", {
@@ -1342,8 +1458,9 @@ function stackMark(box) {
   return mark;
 }
 
-function cargoText(value, x, y, size, fill, weight) {
+function cargoText(value, x, y, size, fill, weight, className) {
   const text = svgEl("text", {
+    class: className,
     x,
     y,
     "text-anchor": "middle",
@@ -1601,7 +1718,10 @@ function syncDiagramView() {
     button.setAttribute("aria-selected", on ? "true" : "false");
   }
   if (show3d) ensureScene();
-  else if (sceneView) sceneView.setActive(false);
+  else {
+    if (sceneView) sceneView.setActive(false);
+    requestAnimationFrame(() => fitDeckLabels(two));
+  }
 }
 
 function focusPiece(id, source) {

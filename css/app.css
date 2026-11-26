@@ -384,7 +384,14 @@ body[data-step="4"] .lede {
   padding: 24px;
 }
 
-.panel-upload { width: min(760px, 100%); margin: 0 auto; }
+.panel-upload { width: 100%; margin: 0 auto; }
+
+@media (min-width: 861px) {
+  body[data-step="1"] .mast-inner,
+  body[data-step="1"] .stage {
+    width: min(1200px, calc(100% - 48px));
+  }
+}
 
 .panel-manual { width: 100%; }
 
@@ -466,11 +473,32 @@ body[data-step="4"] .lede {
 .filechip[data-kind="excel"]::before { content: "Excel"; }
 
 .row-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin: 6px 0 0;
-  color: var(--warn-ink);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fff;
+  color: #c4382b;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.4;
+}
+
+.row-alert::before {
+  content: "!";
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: #c4382b;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
 }
 
 .drop {
@@ -1031,10 +1059,15 @@ tr.is-open td.computed {
 }
 
 .view-scroll {
+  position: relative;
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #f7f1e6;
+}
+
+.view-2d .view-scroll {
+  overflow-x: hidden;
 }
 
 .deck svg {
@@ -1042,6 +1075,39 @@ tr.is-open td.computed {
   max-width: none;
   font-family: "Segoe UI", "Microsoft JhengHei", sans-serif;
 }
+
+.view-2d .deck svg {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+}
+
+.cargo-id-alt { visibility: hidden; }
+
+.cargo.is-compact .cargo-full,
+.cargo.is-compact .oog-label,
+.deck svg.hide-oog .oog-label {
+  visibility: hidden;
+}
+
+.cargo.is-compact .cargo-id-alt { visibility: visible; }
+
+.deck-tip {
+  position: absolute;
+  z-index: 3;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(20, 36, 48, 0.94);
+  color: white;
+  pointer-events: none;
+  box-shadow: 0 8px 20px rgba(20, 36, 32, 0.18);
+}
+
+.deck-tip p { margin: 0; font-size: 13px; line-height: 1.45; }
+
+.deck-tip p + p { margin-top: 2px; }
 
 .underlay {
   fill: rgba(20, 62, 57, 0.14);
@@ -1475,6 +1541,11 @@ button.piece-name.is-open .name-full { display: inline; }
   .panel, .sheet { box-shadow: none; }
   .panel { padding: 0 !important; border: 0; }
   .view-scroll { border: 0; }
+  .deck-tip { display: none !important; }
+  .cargo.is-compact .cargo-full,
+  .cargo.is-compact .oog-label,
+  .deck svg.hide-oog .oog-label { visibility: visible !important; }
+  .cargo.is-compact .cargo-id-alt { visibility: hidden !important; }
   .deck svg {
     width: 100% !important;
     max-width: 100% !important;
